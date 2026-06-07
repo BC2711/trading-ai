@@ -202,6 +202,16 @@ class AIAnalysisResponse(BaseModel):
     generated_at: datetime
 
 
+class AIProviderStatusRequest(BaseModel):
+    provider: str = Field(default="rules", pattern="^(rules|openai)$")
+
+
+class AIProviderStatusResponse(BaseModel):
+    provider: str
+    openai_available: bool
+    available_providers: list[str]
+
+
 class PaperOrderRequest(BaseModel):
     symbol: str = "BTCUSDT"
     side: str | None = Field(default=None, pattern="^(buy|sell)$")

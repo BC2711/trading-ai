@@ -29,6 +29,8 @@ from app.schemas.trading import (
     StrategyUpdate,
     SymbolCreate,
     SymbolRead,
+    AIProviderStatusRequest,
+    AIProviderStatusResponse,
 )
 from app.core.config import settings
 from app.services.indicators.technical import moving_average_snapshot
@@ -236,6 +238,31 @@ def get_ai_analyses(
     db: Session = Depends(get_db),
 ) -> list[AIAnalysisResponse]:
     return [analysis_to_response(record) for record in list_ai_analyses(db, limit)]
+
+
+@router.get("/ai/provider", response_model=AIProviderStatusResponse, tags=["ai"])
+def get_ai_provider_status() -> AIProviderStatusResponse:
+    return AIProviderStatusResponse(
+        provider=settings.ai_provider,
+        openai_available=bool(settings.openai_api_key),
+        available_providers=["rules", "openai"],
+    )
+
+
+@router.patch("/ai/provider", response_model=AIProviderStatusResponse, tags=["ai"])
+def patch_ai_provider(payload: AIProviderStatusRequest) -> AIProviderStatusResponse:
+    provider = payload.provider.lower()
+    if provider not in {"rules", "openai"}:
+        raise HTTPException(status_code=400, detail="Unsupported AI provider")
+    if provider == "openai" and not settings.openai_api_key:
+        raise HTTPException(status_code=400, detail="OpenAI provider requires OPENAI_API_KEY")
+
+    settings.ai_provider = provider
+    return AIProviderStatusResponse(
+        provider=settings.ai_provider,
+        openai_available=bool(settings.openai_api_key),
+        available_providers=["rules", "openai"],
+    )
 
 
 @router.get("/ai/analyses/{analysis_id}", response_model=AIAnalysisResponse, tags=["ai"])

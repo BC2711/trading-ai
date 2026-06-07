@@ -309,8 +309,24 @@ export async function runBacktest(payload: BacktestRunRequest): Promise<Backtest
   return response.data;
 }
 
+export type AIProviderStatus = {
+  provider: string;
+  openai_available: boolean;
+  available_providers: string[];
+};
+
 export async function analyzeSignal(payload: AIAnalysisRequest): Promise<AIAnalysis> {
   const response = await apiClient.post<AIAnalysis>("/api/ai/analyze-signal", payload);
+  return response.data;
+}
+
+export async function fetchAIProviderStatus(): Promise<AIProviderStatus> {
+  const response = await apiClient.get<AIProviderStatus>("/api/ai/provider");
+  return response.data;
+}
+
+export async function setAIProvider(provider: string): Promise<AIProviderStatus> {
+  const response = await apiClient.patch<AIProviderStatus>("/api/ai/provider", { provider });
   return response.data;
 }
 

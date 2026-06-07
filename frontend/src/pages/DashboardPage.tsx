@@ -36,8 +36,9 @@ import {
   analyzeSignal,
   closePosition,
   createPaperOrder,
-  fetchBacktests,
+  fetchAIProviderStatus,
   fetchAIAnalyses,
+  fetchBacktests,
   fetchCandles,
   fetchMarketDataSchedule,
   fetchOrders,
@@ -47,10 +48,11 @@ import {
   fetchSymbols,
   refreshMarketData,
   runBacktest,
+  setAIProvider,
   updateRiskSettings,
   updateStrategy
 } from "../services/api";
-import type { AIAnalysis } from "../services/api";
+import type { AIAnalysis, AIProviderStatus } from "../services/api";
 import { useSignals } from "../hooks/useSignals";
 import { useTradingStore } from "../store/useTradingStore";
 import { cn } from "../utils/cn";
@@ -61,6 +63,7 @@ export function DashboardPage() {
   const [strategyOpen, setStrategyOpen] = useState(false);
   const [analysisOpen, setAnalysisOpen] = useState(false);
   const [selectedAnalysis, setSelectedAnalysis] = useState<AIAnalysis | null>(null);
+  const [selectedAIProvider, setSelectedAIProvider] = useState("rules");
   const [activeTab, setActiveTab] = useState("Live");
   const [strategyForm, setStrategyForm] = useState({
     name: "",
@@ -98,6 +101,11 @@ export function DashboardPage() {
   const aiAnalysesQuery = useQuery({
     queryKey: ["ai-analyses"],
     queryFn: () => fetchAIAnalyses(5)
+  });
+  const aiProviderQuery = useQuery({
+    queryKey: ["ai-provider-status"],
+    queryFn: fetchAIProviderStatus,
+    staleTime: 1000 * 60 * 5
   });
   const ordersQuery = useQuery({
     queryKey: ["orders"],
@@ -221,6 +229,20 @@ export function DashboardPage() {
       setAnalysisOpen(true);
     }
   });
+  const aiProviderStatus = aiProviderQuery.data;
+  const aiProviderMutation = useMutation({
+    mutationFn: (provider: string) => setAIProvider(provider),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["ai-provider-status"] });
+    }
+  });
+
+  useEffect(() => {
+    if (aiProviderStatus?.provider) {
+      setSelectedAIProvider(aiProviderStatus.provider);
+    }
+  }, [aiProviderStatus]);
+
   const activeAnalysis = selectedAnalysis ?? analysisMutation.data;
   const paperOrderMutation = useMutation({
     mutationFn: () => {
@@ -469,6 +491,39 @@ export function DashboardPage() {
             >
               Refresh backend data
             </Button>
+            <div className="rounded-[8px] border border-white/10 bg-white/10 p-4 backdrop-blur-lg dark:bg-white/5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-bold text-slate-900 dark:text-white">AI provider</p>
+                  <p className="text-xs text-slate-500 dark:text-white/50">Choose the backend AI analysis provider.</p>
+                </div>
+                <Badge tone={aiProviderStatus?.provider === "openai" ? "success" : "info"}>
+                  {aiProviderStatus?.provider ?? "loading..."}
+                </Badge>
+              </div>
+              <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
+                <div className="flex-1">
+                  <Select
+                    value={selectedAIProvider}
+                    options={aiProviderStatus?.available_providers ?? ["rules", "openai"]}
+                    onChange={(event) => setSelectedAIProvider(event.target.value)}
+                    wrapperClassName="w-full"
+                  />
+                </div>
+                <Button
+                  loading={aiProviderMutation.isPending}
+                  onClick={() => aiProviderMutation.mutate(selectedAIProvider)}
+                  className="min-h-11"
+                >
+                  Set provider
+                </Button>
+              </div>
+              <p className="mt-3 text-xs text-slate-500 dark:text-white/50">
+                {aiProviderStatus
+                  ? `OpenAI configured: ${aiProviderStatus.openai_available ? "yes" : "no"}.`
+                  : "Loading provider configuration..."}
+              </p>
+            </div>
           </div>
         </Card>
       </section>

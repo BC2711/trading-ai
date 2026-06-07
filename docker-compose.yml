@@ -14,6 +14,10 @@ services:
       MARKET_SYNC_TIMEFRAME: 15m
       MARKET_SYNC_LIMIT: 500
       MARKET_SYNC_INTERVAL_MINUTES: 5
+      AI_PROVIDER: rules
+      OPENAI_API_KEY: ""
+      OPENAI_API_BASE_URL: https://api.openai.com
+      OPENAI_MODEL: gpt-3.5-turbo
     depends_on:
       - db
       - redis
@@ -45,6 +49,10 @@ services:
       MARKET_SYNC_TIMEFRAME: 15m
       MARKET_SYNC_LIMIT: 500
       MARKET_SYNC_INTERVAL_MINUTES: 5
+      AI_PROVIDER: rules
+      OPENAI_API_KEY: ""
+      OPENAI_API_BASE_URL: https://api.openai.com
+      OPENAI_MODEL: gpt-3.5-turbo
     depends_on:
       - backend
       - redis
@@ -62,6 +70,10 @@ services:
       MARKET_SYNC_TIMEFRAME: 15m
       MARKET_SYNC_LIMIT: 500
       MARKET_SYNC_INTERVAL_MINUTES: 5
+      AI_PROVIDER: rules
+      OPENAI_API_KEY: ""
+      OPENAI_API_BASE_URL: https://api.openai.com
+      OPENAI_MODEL: gpt-3.5-turbo
     depends_on:
       - backend
       - redis

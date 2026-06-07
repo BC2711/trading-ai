@@ -55,6 +55,13 @@ npm run dev
 - `GET /api/signals`
 - `GET /api/indicators/preview`
 - `GET /metrics`
+- `POST /api/ai/analyze-signal`
+- `GET /api/ai/analyses`
+- `GET /api/ai/analyses/{analysis_id}`
+
+## AI Provider
+
+The backend supports a rule-based AI provider by default. Set `AI_PROVIDER=openai` and provide `OPENAI_API_KEY` to enable OpenAI-based analysis.
 
 ## Stack
 

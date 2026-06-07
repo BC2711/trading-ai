@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     enable_metrics: bool = True
     sentry_dsn: str | None = None
     sentry_environment: str = "development"
+    ai_provider: str = "rules"
+    openai_api_key: str | None = None
+    openai_api_base_url: str = "https://api.openai.com"
+    openai_model: str = "gpt-3.5-turbo"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
