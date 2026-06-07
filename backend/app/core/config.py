@@ -10,6 +10,11 @@ class Settings(BaseSettings):
     celery_broker_url: str = "redis://redis:6379/1"
     celery_result_backend: str = "redis://redis:6379/2"
     binance_api_base_url: str = "https://api.binance.com"
+    market_sync_symbols: list[str] = ["BTCUSDT", "ETHUSDT"]
+    market_sync_timeframe: str = "15m"
+    market_sync_limit: int = 500
+    market_sync_interval_minutes: int = 5
+    market_sync_regenerate_signals: bool = True
     enable_metrics: bool = True
     sentry_dsn: str | None = None
     sentry_environment: str = "development"

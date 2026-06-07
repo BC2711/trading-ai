@@ -64,6 +64,39 @@ class MarketDataSyncResponse(BaseModel):
     signals: list["SignalRead"] = Field(default_factory=list)
 
 
+class MarketDataRefreshRequest(BaseModel):
+    symbols: list[str] | None = None
+    timeframe: str | None = None
+    limit: int | None = Field(default=None, ge=1, le=1000)
+    regenerate_signals: bool | None = None
+
+
+class MarketDataRefreshResponse(BaseModel):
+    status: str
+    provider: str
+    symbols: list[str]
+    timeframe: str
+    limit: int
+    results: list[MarketDataSyncResult]
+    generated_signal_count: int
+    error: str | None = None
+
+
+class MarketDataTaskResponse(BaseModel):
+    task_id: str
+    status: str
+
+
+class MarketDataScheduleResponse(BaseModel):
+    enabled: bool
+    job_id: str
+    interval_minutes: int
+    symbols: list[str]
+    timeframe: str
+    limit: int
+    regenerate_signals: bool
+
+
 class SignalRead(BaseModel):
     id: int
     symbol: str

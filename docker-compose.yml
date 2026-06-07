@@ -10,6 +10,10 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/2
       CORS_ORIGINS: '["http://localhost:5173","http://localhost:5174","http://127.0.0.1:5173","http://127.0.0.1:5174"]'
+      MARKET_SYNC_SYMBOLS: '["BTCUSDT","ETHUSDT"]'
+      MARKET_SYNC_TIMEFRAME: 15m
+      MARKET_SYNC_LIMIT: 500
+      MARKET_SYNC_INTERVAL_MINUTES: 5
     depends_on:
       - db
       - redis
@@ -37,6 +41,10 @@ services:
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/2
+      MARKET_SYNC_SYMBOLS: '["BTCUSDT","ETHUSDT"]'
+      MARKET_SYNC_TIMEFRAME: 15m
+      MARKET_SYNC_LIMIT: 500
+      MARKET_SYNC_INTERVAL_MINUTES: 5
     depends_on:
       - backend
       - redis
@@ -50,6 +58,10 @@ services:
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/2
+      MARKET_SYNC_SYMBOLS: '["BTCUSDT","ETHUSDT"]'
+      MARKET_SYNC_TIMEFRAME: 15m
+      MARKET_SYNC_LIMIT: 500
+      MARKET_SYNC_INTERVAL_MINUTES: 5
     depends_on:
       - backend
       - redis

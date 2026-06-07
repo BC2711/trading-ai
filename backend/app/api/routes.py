@@ -5,8 +5,12 @@ from app.db.deps import get_db
 from app.models import MarketCandle, Signal
 from app.schemas.trading import (
     MarketCandleRead,
+    MarketDataRefreshRequest,
+    MarketDataRefreshResponse,
+    MarketDataScheduleResponse,
     MarketDataSyncRequest,
     MarketDataSyncResponse,
+    MarketDataTaskResponse,
     RiskSettingRead,
     SignalGenerateRequest,
     SignalRead,
@@ -14,6 +18,7 @@ from app.schemas.trading import (
     SymbolCreate,
     SymbolRead,
 )
+from app.core.config import settings
 from app.services.indicators.technical import moving_average_snapshot
 from app.services.repository import (
     create_symbol,
@@ -23,8 +28,10 @@ from app.services.repository import (
     list_symbols,
 )
 from app.services.market_data.binance import MarketDataProviderError
+from app.services.market_data.jobs import run_market_data_refresh
 from app.services.market_data.sync import sync_market_data
 from app.services.signals import generate_signals, list_signals
+from app.workers.tasks import refresh_market_data
 
 router = APIRouter()
 
@@ -71,6 +78,46 @@ def post_market_data_sync(
         timeframe=payload.timeframe,
         results=results,
         signals=[signal_to_schema(signal) for signal in signals],
+    )
+
+
+@router.post("/market-data/refresh", response_model=MarketDataRefreshResponse, tags=["market-data"])
+def post_market_data_refresh(
+    payload: MarketDataRefreshRequest | None = None,
+    db: Session = Depends(get_db),
+) -> MarketDataRefreshResponse:
+    payload = payload or MarketDataRefreshRequest()
+    return run_market_data_refresh(
+        db,
+        symbols=payload.symbols,
+        timeframe=payload.timeframe,
+        limit=payload.limit,
+        regenerate_signals=payload.regenerate_signals,
+    )
+
+
+@router.post("/market-data/refresh-task", response_model=MarketDataTaskResponse, tags=["market-data"])
+def post_market_data_refresh_task(payload: MarketDataRefreshRequest | None = None) -> MarketDataTaskResponse:
+    payload = payload or MarketDataRefreshRequest()
+    task = refresh_market_data.delay(
+        symbols=payload.symbols,
+        timeframe=payload.timeframe,
+        limit=payload.limit,
+        regenerate_signals=payload.regenerate_signals,
+    )
+    return MarketDataTaskResponse(task_id=task.id, status="queued")
+
+
+@router.get("/market-data/schedule", response_model=MarketDataScheduleResponse, tags=["market-data"])
+def get_market_data_schedule() -> MarketDataScheduleResponse:
+    return MarketDataScheduleResponse(
+        enabled=True,
+        job_id="market-data-sync",
+        interval_minutes=settings.market_sync_interval_minutes,
+        symbols=settings.market_sync_symbols,
+        timeframe=settings.market_sync_timeframe,
+        limit=settings.market_sync_limit,
+        regenerate_signals=settings.market_sync_regenerate_signals,
     )
 
 
