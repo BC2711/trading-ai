@@ -46,10 +46,18 @@ const navItems: NavItem[] = [
     label: "Overview",
     icon: LayoutDashboard,
     href: "#/overview",
-    active: true,
     children: [
-      { label: "Portfolio", icon: Wallet, href: "#/overview/portfolio", active: true, badge: "3", badgeColor: "bg-cyan-400/20 text-cyan-700 dark:text-cyan-200" },
+      { label: "Portfolio", icon: Wallet, href: "#/overview/portfolio", badge: "3", badgeColor: "bg-cyan-400/20 text-cyan-700 dark:text-cyan-200" },
       { label: "Watchlists", icon: Star, href: "#/overview/watchlists", badge: "12", badgeColor: "bg-amber-400/20 text-amber-700 dark:text-amber-200" }
+    ]
+  },
+  {
+    label: "Trading",
+    icon: TrendingUp,
+    href: "#/trading",
+    children: [
+      { label: "Orders", icon: Activity, href: "#/trading/orders" },
+      { label: "Positions", icon: Wallet, href: "#/trading/positions" }
     ]
   },
   {
@@ -101,12 +109,19 @@ export function Sidebar({ collapsed, onToggle, mobile = false }: SidebarProps) {
   const [expandedItem, setExpandedItem] = useState<string | null>("Overview");
   const [openTooltip, setOpenTooltip] = useState<string | null>(null);
   const [activeChildHref, setActiveChildHref] = useState<string | null>(null);
+  const [currentHash, setCurrentHash] = useState(() => window.location.hash || "#/overview");
   const [tooltipPosition, setTooltipPosition] = useState({ top: 0, left: 0 });
   const sidebarRef = useRef<HTMLElement>(null);
   const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleChildClick = useCallback((href: string) => {
     setActiveChildHref(href);
+  }, []);
+
+  useEffect(() => {
+    const handleHashChange = () => setCurrentHash(window.location.hash || "#/overview");
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
 
   useEffect(() => {
@@ -223,7 +238,7 @@ export function Sidebar({ collapsed, onToggle, mobile = false }: SidebarProps) {
           <AnimatePresence mode="popLayout">
             {navItems.map((item, index) => {
               const isExpanded = !collapsed && expandedItem === item.label;
-              const active = isNavItemActive(item);
+              const active = isNavItemActive(item, currentHash);
 
               return (
                 <motion.div
@@ -270,7 +285,7 @@ export function Sidebar({ collapsed, onToggle, mobile = false }: SidebarProps) {
                             child={child}
                             index={childIndex}
                             onClick={() => handleChildClick(child.href)}
-                            isActive={activeChildHref === child.href}
+                            isActive={activeChildHref === child.href || isHrefActive(child.href, currentHash)}
                           />
                         ))}
                       </motion.div>
@@ -293,6 +308,7 @@ export function Sidebar({ collapsed, onToggle, mobile = false }: SidebarProps) {
               item={navItems.find(item => item.label === openTooltip)!}
               open={true}
               position={tooltipPosition}
+              currentHash={currentHash}
               onMouseEnter={() => {
                 if (tooltipTimeoutRef.current) {
                   clearTimeout(tooltipTimeoutRef.current);
@@ -470,12 +486,14 @@ function CollapsedSubmenuPanel({
   item,
   open,
   position,
+  currentHash,
   onMouseEnter,
   onMouseLeave
 }: {
   item: NavItem;
   open: boolean;
   position: { top: number; left: number };
+  currentHash: string;
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
 }) {
@@ -514,7 +532,7 @@ function CollapsedSubmenuPanel({
                   "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-black outline-none transition-all duration-200",
                   "hover:bg-white/15 hover:shadow-md dark:hover:bg-white/[0.06]",
                   "focus-visible:ring-2 focus-visible:ring-cyan-300/70",
-                  isNavItemActive(item)
+                  isNavItemActive(item, currentHash)
                     ? "text-cyan-700 dark:text-cyan-100 bg-cyan-400/10"
                     : "text-slate-900 dark:text-white"
                 )}
@@ -534,7 +552,7 @@ function CollapsedSubmenuPanel({
               {item.children.length > 0 ? (
                 <div className="mt-1.5 grid gap-0.5 border-t border-white/10 dark:border-white/[0.06] pt-1.5">
                   {item.children.map((child, index) => (
-                    <ChildNavLink key={child.label} child={child} index={index} panel />
+                    <ChildNavLink key={child.label} child={child} index={index} panel isActive={isHrefActive(child.href, currentHash)} />
                   ))}
                 </div>
               ) : null}
@@ -771,6 +789,11 @@ function GlassLabelTooltip({
   );
 }
 
-function isNavItemActive(item: NavItem) {
-  return Boolean(item.active || item.children.some((child) => child.active));
+function isNavItemActive(item: NavItem, currentHash: string) {
+  return Boolean(item.active || isHrefActive(item.href, currentHash) || item.children.some((child) => child.active || isHrefActive(child.href, currentHash)));
+}
+
+function isHrefActive(href: string, currentHash: string) {
+  const normalizedCurrent = currentHash || "#/overview";
+  return normalizedCurrent === href || normalizedCurrent.startsWith(`${href}/`);
 }

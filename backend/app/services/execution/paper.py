@@ -55,17 +55,23 @@ def create_paper_order(db: Session, payload: PaperOrderRequest) -> PaperOrder:
     return order
 
 
-def list_paper_orders(db: Session, limit: int = 20) -> list[PaperOrder]:
-    statement = select(PaperOrder).order_by(PaperOrder.created_at.desc()).limit(limit)
+def list_paper_orders(db: Session, limit: int = 20, status: str | None = None) -> list[PaperOrder]:
+    statement = select(PaperOrder)
+    if status and status != "all":
+        statement = statement.where(PaperOrder.status == status)
+    statement = statement.order_by(PaperOrder.created_at.desc()).limit(limit)
     return list(db.scalars(statement).all())
 
 
-def list_paper_positions(db: Session) -> list[PaperPosition]:
-    statement = select(PaperPosition).where(PaperPosition.status == "open").order_by(PaperPosition.created_at.desc())
+def list_paper_positions(db: Session, status: str = "open") -> list[PaperPosition]:
+    statement = select(PaperPosition)
+    if status != "all":
+        statement = statement.where(PaperPosition.status == status)
+    statement = statement.order_by(PaperPosition.created_at.desc())
     positions = list(db.scalars(statement).all())
     for position in positions:
         latest_price = get_latest_price(db, position.symbol_ref.symbol)
-        if latest_price is not None:
+        if latest_price is not None and position.status == "open":
             update_mark_to_market(position, latest_price)
     db.commit()
     return positions

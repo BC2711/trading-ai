@@ -248,9 +248,10 @@ def get_ai_analysis_by_id(
 @router.get("/orders", response_model=list[PaperOrderRead], tags=["paper-trading"])
 def get_orders(
     limit: int = Query(20, ge=1, le=100),
+    status: str | None = Query(None, pattern="^(filled|rejected|cancelled|all)$"),
     db: Session = Depends(get_db),
 ) -> list[PaperOrderRead]:
-    return [order_to_schema(order) for order in list_paper_orders(db, limit)]
+    return [order_to_schema(order) for order in list_paper_orders(db, limit, status)]
 
 
 @router.post("/orders/paper", response_model=PaperOrderRead, tags=["paper-trading"])
@@ -281,8 +282,11 @@ def post_cancel_order(
 
 
 @router.get("/positions", response_model=list[PaperPositionRead], tags=["paper-trading"])
-def get_positions(db: Session = Depends(get_db)) -> list[PaperPositionRead]:
-    return [position_to_schema(position) for position in list_paper_positions(db)]
+def get_positions(
+    status: str = Query("open", pattern="^(open|closed|all)$"),
+    db: Session = Depends(get_db),
+) -> list[PaperPositionRead]:
+    return [position_to_schema(position) for position in list_paper_positions(db, status)]
 
 
 @router.post("/positions/{position_id}/close", response_model=PaperPositionRead, tags=["paper-trading"])

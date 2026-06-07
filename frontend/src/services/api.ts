@@ -281,9 +281,12 @@ export async function fetchAIAnalysis(id: number): Promise<AIAnalysis> {
   return response.data;
 }
 
-export async function fetchOrders(limit = 20): Promise<PaperOrder[]> {
+export type OrderStatusFilter = "filled" | "rejected" | "cancelled" | "all";
+export type PositionStatusFilter = "open" | "closed" | "all";
+
+export async function fetchOrders(limit = 20, status?: OrderStatusFilter): Promise<PaperOrder[]> {
   const response = await apiClient.get<PaperOrder[]>("/api/orders", {
-    params: { limit }
+    params: { limit, status }
   });
   return response.data;
 }
@@ -298,8 +301,10 @@ export async function cancelOrder(id: number): Promise<PaperOrder> {
   return response.data;
 }
 
-export async function fetchPositions(): Promise<PaperPosition[]> {
-  const response = await apiClient.get<PaperPosition[]>("/api/positions");
+export async function fetchPositions(status: PositionStatusFilter = "open"): Promise<PaperPosition[]> {
+  const response = await apiClient.get<PaperPosition[]>("/api/positions", {
+    params: { status }
+  });
   return response.data;
 }
 

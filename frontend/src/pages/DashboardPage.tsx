@@ -105,7 +105,7 @@ export function DashboardPage() {
   });
   const positionsQuery = useQuery({
     queryKey: ["positions"],
-    queryFn: fetchPositions
+    queryFn: () => fetchPositions()
   });
 
   const selectedSymbol = symbolsQuery.data?.[0]?.symbol ?? "BTCUSDT";
