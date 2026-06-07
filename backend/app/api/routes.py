@@ -4,6 +4,8 @@ from sqlalchemy.orm import Session
 from app.db.deps import get_db
 from app.models import MarketCandle, Signal
 from app.schemas.trading import (
+    AIAnalysisRequest,
+    AIAnalysisResponse,
     BacktestRunRead,
     BacktestRunRequest,
     MarketCandleRead,
@@ -36,6 +38,7 @@ from app.services.repository import (
 from app.services.market_data.binance import MarketDataProviderError
 from app.services.market_data.jobs import run_market_data_refresh
 from app.services.market_data.sync import sync_market_data
+from app.services.ai.advisor import analyze_signal
 from app.services.backtesting.engine import list_backtest_runs, run_backtest
 from app.services.signals import generate_signals, list_signals
 from app.workers.tasks import refresh_market_data
@@ -197,6 +200,17 @@ def post_backtest_run(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return backtest_to_schema(run)
+
+
+@router.post("/ai/analyze-signal", response_model=AIAnalysisResponse, tags=["ai"])
+def post_ai_analyze_signal(
+    payload: AIAnalysisRequest,
+    db: Session = Depends(get_db),
+) -> AIAnalysisResponse:
+    try:
+        return analyze_signal(db, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/indicators/preview", tags=["indicators"])

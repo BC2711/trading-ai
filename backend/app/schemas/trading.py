@@ -176,3 +176,25 @@ class BacktestRunRead(BaseModel):
     status: str
     summary: str
     created_at: datetime
+
+
+class AIAnalysisRequest(BaseModel):
+    signal_id: int | None = None
+    symbol: str = "BTCUSDT"
+    timeframe: str = "15m"
+    lookback: int = Field(default=120, ge=30, le=500)
+
+
+class AIAnalysisResponse(BaseModel):
+    provider: str
+    symbol: str
+    timeframe: str
+    direction: str
+    confidence: float
+    explanation: str
+    reasoning: list[str]
+    risk_notes: list[str]
+    suggested_action: str
+    indicators: dict[str, float]
+    backtest_summary: str | None = None
+    generated_at: datetime

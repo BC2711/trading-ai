@@ -140,6 +140,28 @@ export type BacktestRun = {
   created_at: string;
 };
 
+export type AIAnalysisRequest = {
+  signal_id?: number;
+  symbol?: string;
+  timeframe?: string;
+  lookback?: number;
+};
+
+export type AIAnalysis = {
+  provider: string;
+  symbol: string;
+  timeframe: string;
+  direction: string;
+  confidence: number;
+  explanation: string;
+  reasoning: string[];
+  risk_notes: string[];
+  suggested_action: string;
+  indicators: Record<string, number>;
+  backtest_summary: string | null;
+  generated_at: string;
+};
+
 export async function fetchSymbols(): Promise<SymbolResource[]> {
   const response = await apiClient.get<SymbolResource[]>("/api/symbols");
   return response.data;
@@ -196,5 +218,10 @@ export async function fetchBacktests(limit = 5): Promise<BacktestRun[]> {
 
 export async function runBacktest(payload: BacktestRunRequest): Promise<BacktestRun> {
   const response = await apiClient.post<BacktestRun>("/api/backtests/run", payload);
+  return response.data;
+}
+
+export async function analyzeSignal(payload: AIAnalysisRequest): Promise<AIAnalysis> {
+  const response = await apiClient.post<AIAnalysis>("/api/ai/analyze-signal", payload);
   return response.data;
 }
