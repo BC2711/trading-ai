@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.models import AIAnalysisRecord, BacktestRun, Signal
 from app.schemas.trading import AIAnalysisRequest, AIAnalysisResponse
+from app.services.audit import record_event
 from app.services.indicators.technical import indicator_snapshot
 from app.services.repository import ensure_default_risk_settings, ensure_default_strategy, list_candles, seed_defaults
 from app.services.signals import build_signal_from_candles, generate_signals
@@ -52,6 +53,16 @@ def analyze_signal(db: Session, payload: AIAnalysisRequest) -> AIAnalysisRespons
     db.add(record)
     db.commit()
     db.refresh(record)
+    record_event(
+        db,
+        event_type="ai.analysis.generated",
+        entity_type="ai_analysis",
+        entity_id=record.id,
+        severity="info",
+        message=f"Generated AI analysis for {record.symbol} {record.direction.upper()} at {record.confidence * 100:.1f}% confidence.",
+        metadata={"symbol": record.symbol, "timeframe": record.timeframe, "direction": record.direction, "signal_id": record.signal_id},
+        commit=True,
+    )
     return analysis_to_response(record)
 
 

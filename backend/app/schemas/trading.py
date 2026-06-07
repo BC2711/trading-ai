@@ -268,3 +268,14 @@ class EquityCurvePoint(BaseModel):
 class EquityCurveResponse(BaseModel):
     starting_equity: float
     points: list[EquityCurvePoint]
+
+
+class AuditEventRead(BaseModel):
+    id: int
+    event_type: str
+    entity_type: str
+    entity_id: int | None
+    severity: str
+    message: str
+    metadata: dict
+    created_at: datetime

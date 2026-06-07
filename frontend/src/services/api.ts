@@ -232,6 +232,24 @@ export type EquityCurve = {
   points: EquityCurvePoint[];
 };
 
+export type AuditEvent = {
+  id: number;
+  event_type: string;
+  entity_type: string;
+  entity_id: number | null;
+  severity: "info" | "warning" | "error";
+  message: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
+export type AuditEventFilters = {
+  limit?: number;
+  event_type?: string;
+  severity?: "info" | "warning" | "error";
+  entity_type?: string;
+};
+
 export async function fetchSymbols(): Promise<SymbolResource[]> {
   const response = await apiClient.get<SymbolResource[]>("/api/symbols");
   return response.data;
@@ -347,5 +365,12 @@ export async function fetchPortfolioSummary(): Promise<PortfolioSummary> {
 
 export async function fetchEquityCurve(): Promise<EquityCurve> {
   const response = await apiClient.get<EquityCurve>("/api/portfolio/equity-curve");
+  return response.data;
+}
+
+export async function fetchAuditEvents(filters: AuditEventFilters = {}): Promise<AuditEvent[]> {
+  const response = await apiClient.get<AuditEvent[]>("/api/audit/events", {
+    params: filters
+  });
   return response.data;
 }

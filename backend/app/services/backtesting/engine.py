@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.models import BacktestRun, MarketCandle
 from app.schemas.trading import BacktestRunRequest
+from app.services.audit import record_event
 from app.services.indicators.technical import rsi
 from app.services.repository import (
     ensure_default_risk_settings,
@@ -64,6 +65,22 @@ def run_backtest(db: Session, payload: BacktestRunRequest) -> BacktestRun:
     db.add(run)
     db.commit()
     db.refresh(run)
+    record_event(
+        db,
+        event_type="backtest.completed",
+        entity_type="backtest",
+        entity_id=run.id,
+        severity="info",
+        message=run.summary,
+        metadata={
+            "symbol": symbol.symbol,
+            "timeframe": payload.timeframe,
+            "total_return": run.total_return,
+            "win_rate": run.win_rate,
+            "trades_count": run.trades_count,
+        },
+        commit=True,
+    )
     return run
 
 

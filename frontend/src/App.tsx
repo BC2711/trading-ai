@@ -10,6 +10,9 @@ const DashboardPage = lazy(() =>
 const TradingPage = lazy(() =>
   import("./pages/TradingPage").then((module) => ({ default: module.TradingPage }))
 );
+const ActivityPage = lazy(() =>
+  import("./pages/ActivityPage").then((module) => ({ default: module.ActivityPage }))
+);
 
 export function App() {
   const [route, setRoute] = useState(getRoute());
@@ -32,7 +35,7 @@ export function App() {
           </Card>
         }
       >
-        {route.startsWith("trading") ? <TradingPage /> : <DashboardPage />}
+        {route.startsWith("trading") ? <TradingPage /> : route.startsWith("activity") ? <ActivityPage /> : <DashboardPage />}
       </Suspense>
     </AppLayout>
   );

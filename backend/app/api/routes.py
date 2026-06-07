@@ -6,6 +6,7 @@ from app.models import MarketCandle, Signal
 from app.schemas.trading import (
     AIAnalysisRequest,
     AIAnalysisResponse,
+    AuditEventRead,
     BacktestRunRead,
     BacktestRunRequest,
     MarketCandleRead,
@@ -44,6 +45,7 @@ from app.services.market_data.binance import MarketDataProviderError
 from app.services.market_data.jobs import run_market_data_refresh
 from app.services.market_data.sync import sync_market_data
 from app.services.ai.advisor import analyze_signal, analysis_to_response, get_ai_analysis, list_ai_analyses
+from app.services.audit import audit_event_to_schema, list_audit_events
 from app.services.backtesting.engine import list_backtest_runs, run_backtest
 from app.services.execution.paper import (
     cancel_paper_order,
@@ -316,6 +318,26 @@ def get_portfolio_summary_endpoint(db: Session = Depends(get_db)) -> PortfolioSu
 @router.get("/portfolio/equity-curve", response_model=EquityCurveResponse, tags=["portfolio"])
 def get_equity_curve_endpoint(db: Session = Depends(get_db)) -> EquityCurveResponse:
     return get_equity_curve(db)
+
+
+@router.get("/audit/events", response_model=list[AuditEventRead], tags=["audit"])
+def get_audit_events(
+    limit: int = Query(50, ge=1, le=200),
+    event_type: str | None = Query(None),
+    severity: str | None = Query(None, pattern="^(info|warning|error)$"),
+    entity_type: str | None = Query(None),
+    db: Session = Depends(get_db),
+) -> list[AuditEventRead]:
+    return [
+        audit_event_to_schema(event)
+        for event in list_audit_events(
+            db,
+            limit=limit,
+            event_type=event_type,
+            severity=severity,
+            entity_type=entity_type,
+        )
+    ]
 
 
 @router.get("/indicators/preview", tags=["indicators"])

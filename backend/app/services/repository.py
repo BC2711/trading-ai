@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.models import MarketCandle, RiskSetting, Strategy, Symbol
 from app.schemas.trading import RiskSettingUpdate, StrategyUpdate, SymbolCreate
+from app.services.audit import record_event
 
 
 DEFAULT_SYMBOLS = [
@@ -104,12 +105,23 @@ def update_strategy(db: Session, strategy_id: int, payload: StrategyUpdate) -> S
     if not strategy:
         return None
 
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    changes = payload.model_dump(exclude_unset=True)
+    for field, value in changes.items():
         if value is not None:
             setattr(strategy, field, value)
 
     db.commit()
     db.refresh(strategy)
+    record_event(
+        db,
+        event_type="settings.strategy.updated",
+        entity_type="strategy",
+        entity_id=strategy.id,
+        severity="info",
+        message=f"Updated strategy settings for {strategy.name}.",
+        metadata={"changed_fields": sorted(changes.keys())},
+        commit=True,
+    )
     return strategy
 
 
@@ -118,12 +130,23 @@ def update_risk_settings(db: Session, risk_setting_id: int, payload: RiskSetting
     if not settings:
         return None
 
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    changes = payload.model_dump(exclude_unset=True)
+    for field, value in changes.items():
         if value is not None:
             setattr(settings, field, value)
 
     db.commit()
     db.refresh(settings)
+    record_event(
+        db,
+        event_type="settings.risk.updated",
+        entity_type="risk_setting",
+        entity_id=settings.id,
+        severity="info",
+        message=f"Updated risk settings for {settings.name}.",
+        metadata={"changed_fields": sorted(changes.keys())},
+        commit=True,
+    )
     return settings
 
 

@@ -93,8 +93,8 @@ const navItems: NavItem[] = [
     icon: Activity,
     href: "#/activity",
     children: [
-      { label: "Timeline", icon: Activity, href: "#/activity/timeline" },
-      { label: "Audit log", icon: Users, href: "#/activity/audit-log" }
+      { label: "Timeline", icon: Activity, href: "#/activity" },
+      { label: "Audit log", icon: Users, href: "#/activity/audit" }
     ]
   }
 ];

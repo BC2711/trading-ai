@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.models import AIAnalysisRecord, PaperOrder, PaperPosition, Signal
 from app.models.trading import utc_now
 from app.schemas.trading import PaperOrderRead, PaperOrderRequest, PaperPositionRead
+from app.services.audit import record_event
 from app.services.repository import ensure_default_risk_settings, get_symbol, list_candles, seed_defaults
 
 PAPER_EQUITY = 10000.0
@@ -52,6 +53,22 @@ def create_paper_order(db: Session, payload: PaperOrderRequest) -> PaperOrder:
 
     db.commit()
     db.refresh(order)
+    record_event(
+        db,
+        event_type=f"paper_order.{order.status}",
+        entity_type="paper_order",
+        entity_id=order.id,
+        severity="info" if order.status == "filled" else "warning",
+        message=f"Paper order {order.status} for {symbol.symbol} {order.side.upper()}: {order.risk_message}",
+        metadata={
+            "symbol": symbol.symbol,
+            "side": order.side,
+            "quantity": order.quantity,
+            "status": order.status,
+            "risk_status": order.risk_status,
+        },
+        commit=True,
+    )
     return order
 
 
@@ -89,6 +106,16 @@ def cancel_paper_order(db: Session, order_id: int) -> PaperOrder | None:
     order.risk_message = "Paper order cancelled by operator."
     db.commit()
     db.refresh(order)
+    record_event(
+        db,
+        event_type="paper_order.cancelled",
+        entity_type="paper_order",
+        entity_id=order.id,
+        severity="info",
+        message=f"Cancelled paper order {order.id} for {order.symbol_ref.symbol}.",
+        metadata={"symbol": order.symbol_ref.symbol, "side": order.side, "status": order.status},
+        commit=True,
+    )
     return order
 
 
@@ -128,6 +155,21 @@ def close_paper_position(db: Session, position_id: int) -> PaperPosition | None:
     )
     db.commit()
     db.refresh(position)
+    record_event(
+        db,
+        event_type="paper_position.closed",
+        entity_type="paper_position",
+        entity_id=position.id,
+        severity="info",
+        message=f"Closed {position.side} paper position for {position.symbol_ref.symbol} with realized PnL {position.realized_pnl:.2f}.",
+        metadata={
+            "symbol": position.symbol_ref.symbol,
+            "side": position.side,
+            "quantity": position.quantity,
+            "realized_pnl": position.realized_pnl,
+        },
+        commit=True,
+    )
     return position
 
 

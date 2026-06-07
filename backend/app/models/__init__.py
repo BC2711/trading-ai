@@ -1,5 +1,6 @@
 from app.models.trading import (
     AIAnalysisRecord,
+    AuditEvent,
     BacktestRun,
     MarketCandle,
     PaperOrder,
@@ -12,6 +13,7 @@ from app.models.trading import (
 
 __all__ = [
     "AIAnalysisRecord",
+    "AuditEvent",
     "BacktestRun",
     "MarketCandle",
     "PaperOrder",
