@@ -18,6 +18,8 @@ from app.schemas.trading import (
     PaperOrderRead,
     PaperOrderRequest,
     PaperPositionRead,
+    EquityCurveResponse,
+    PortfolioSummaryResponse,
     RiskSettingRead,
     RiskSettingUpdate,
     SignalGenerateRequest,
@@ -52,6 +54,7 @@ from app.services.execution.paper import (
     order_to_schema,
     position_to_schema,
 )
+from app.services.execution.portfolio import get_equity_curve, get_portfolio_summary
 from app.services.signals import generate_signals, list_signals
 from app.workers.tasks import refresh_market_data
 
@@ -303,6 +306,16 @@ def post_close_position(
         raise HTTPException(status_code=404, detail="Paper position not found")
 
     return position_to_schema(position)
+
+
+@router.get("/portfolio/summary", response_model=PortfolioSummaryResponse, tags=["portfolio"])
+def get_portfolio_summary_endpoint(db: Session = Depends(get_db)) -> PortfolioSummaryResponse:
+    return get_portfolio_summary(db)
+
+
+@router.get("/portfolio/equity-curve", response_model=EquityCurveResponse, tags=["portfolio"])
+def get_equity_curve_endpoint(db: Session = Depends(get_db)) -> EquityCurveResponse:
+    return get_equity_curve(db)
 
 
 @router.get("/indicators/preview", tags=["indicators"])

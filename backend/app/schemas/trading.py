@@ -241,3 +241,30 @@ class PaperPositionRead(BaseModel):
     created_at: datetime
     updated_at: datetime
     closed_at: datetime | None
+
+
+class PortfolioSummaryResponse(BaseModel):
+    total_exposure: float
+    open_positions: int
+    filled_orders: int
+    rejected_orders: int
+    cancelled_orders: int
+    unrealized_pnl: float
+    realized_pnl: float
+    closed_positions: int
+    winning_positions: int
+    losing_positions: int
+    win_rate: float
+    best_trade_pnl: float | None = None
+    worst_trade_pnl: float | None = None
+
+
+class EquityCurvePoint(BaseModel):
+    timestamp: datetime
+    equity: float
+    realized_pnl: float
+
+
+class EquityCurveResponse(BaseModel):
+    starting_equity: float
+    points: list[EquityCurvePoint]

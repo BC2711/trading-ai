@@ -205,6 +205,33 @@ export type PaperPosition = {
   closed_at: string | null;
 };
 
+export type PortfolioSummary = {
+  total_exposure: number;
+  open_positions: number;
+  filled_orders: number;
+  rejected_orders: number;
+  cancelled_orders: number;
+  unrealized_pnl: number;
+  realized_pnl: number;
+  closed_positions: number;
+  winning_positions: number;
+  losing_positions: number;
+  win_rate: number;
+  best_trade_pnl: number | null;
+  worst_trade_pnl: number | null;
+};
+
+export type EquityCurvePoint = {
+  timestamp: string;
+  equity: number;
+  realized_pnl: number;
+};
+
+export type EquityCurve = {
+  starting_equity: number;
+  points: EquityCurvePoint[];
+};
+
 export async function fetchSymbols(): Promise<SymbolResource[]> {
   const response = await apiClient.get<SymbolResource[]>("/api/symbols");
   return response.data;
@@ -310,5 +337,15 @@ export async function fetchPositions(status: PositionStatusFilter = "open"): Pro
 
 export async function closePosition(id: number): Promise<PaperPosition> {
   const response = await apiClient.post<PaperPosition>(`/api/positions/${id}/close`);
+  return response.data;
+}
+
+export async function fetchPortfolioSummary(): Promise<PortfolioSummary> {
+  const response = await apiClient.get<PortfolioSummary>("/api/portfolio/summary");
+  return response.data;
+}
+
+export async function fetchEquityCurve(): Promise<EquityCurve> {
+  const response = await apiClient.get<EquityCurve>("/api/portfolio/equity-curve");
   return response.data;
 }
