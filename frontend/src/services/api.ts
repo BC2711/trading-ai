@@ -56,6 +56,15 @@ export type RiskSetting = {
   created_at: string;
 };
 
+export type StrategyUpdateRequest = Partial<Pick<StrategyResource, "name" | "description" | "timeframe" | "status">>;
+
+export type RiskSettingUpdateRequest = Partial<
+  Pick<
+    RiskSetting,
+    "name" | "max_risk_per_trade" | "max_daily_loss" | "max_open_trades" | "max_symbol_exposure" | "status"
+  >
+>;
+
 export type MarketDataRefreshRequest = {
   symbols?: string[];
   timeframe?: string;
@@ -150,6 +159,16 @@ export async function fetchStrategies(): Promise<StrategyResource[]> {
 
 export async function fetchRiskSettings(): Promise<RiskSetting[]> {
   const response = await apiClient.get<RiskSetting[]>("/api/risk-settings");
+  return response.data;
+}
+
+export async function updateStrategy(id: number, payload: StrategyUpdateRequest): Promise<StrategyResource> {
+  const response = await apiClient.patch<StrategyResource>(`/api/strategies/${id}`, payload);
+  return response.data;
+}
+
+export async function updateRiskSettings(id: number, payload: RiskSettingUpdateRequest): Promise<RiskSetting> {
+  const response = await apiClient.patch<RiskSetting>(`/api/risk-settings/${id}`, payload);
   return response.data;
 }
 

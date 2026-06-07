@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import MarketCandle, RiskSetting, Strategy, Symbol
-from app.schemas.trading import SymbolCreate
+from app.schemas.trading import RiskSettingUpdate, StrategyUpdate, SymbolCreate
 
 
 DEFAULT_SYMBOLS = [
@@ -60,6 +60,10 @@ def ensure_default_strategy(db: Session) -> Strategy:
     if strategy:
         return strategy
 
+    strategy = db.scalar(select(Strategy).order_by(Strategy.id).limit(1))
+    if strategy:
+        return strategy
+
     strategy = Strategy(
         name="EMA RSI Risk Guard",
         description="Rule-based starter strategy using EMA trend, RSI, and basic risk constraints.",
@@ -77,6 +81,10 @@ def ensure_default_risk_settings(db: Session) -> RiskSetting:
     if settings:
         return settings
 
+    settings = db.scalar(select(RiskSetting).order_by(RiskSetting.id).limit(1))
+    if settings:
+        return settings
+
     settings = RiskSetting(
         name="Default Paper Risk",
         max_risk_per_trade=0.01,
@@ -86,6 +94,34 @@ def ensure_default_risk_settings(db: Session) -> RiskSetting:
         status="active",
     )
     db.add(settings)
+    db.commit()
+    db.refresh(settings)
+    return settings
+
+
+def update_strategy(db: Session, strategy_id: int, payload: StrategyUpdate) -> Strategy | None:
+    strategy = db.get(Strategy, strategy_id)
+    if not strategy:
+        return None
+
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        if value is not None:
+            setattr(strategy, field, value)
+
+    db.commit()
+    db.refresh(strategy)
+    return strategy
+
+
+def update_risk_settings(db: Session, risk_setting_id: int, payload: RiskSettingUpdate) -> RiskSetting | None:
+    settings = db.get(RiskSetting, risk_setting_id)
+    if not settings:
+        return None
+
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        if value is not None:
+            setattr(settings, field, value)
+
     db.commit()
     db.refresh(settings)
     return settings

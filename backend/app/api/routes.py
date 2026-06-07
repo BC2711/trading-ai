@@ -14,9 +14,11 @@ from app.schemas.trading import (
     MarketDataSyncResponse,
     MarketDataTaskResponse,
     RiskSettingRead,
+    RiskSettingUpdate,
     SignalGenerateRequest,
     SignalRead,
     StrategyRead,
+    StrategyUpdate,
     SymbolCreate,
     SymbolRead,
 )
@@ -28,6 +30,8 @@ from app.services.repository import (
     ensure_default_strategy,
     list_candles,
     list_symbols,
+    update_risk_settings,
+    update_strategy,
 )
 from app.services.market_data.binance import MarketDataProviderError
 from app.services.market_data.jobs import run_market_data_refresh
@@ -143,9 +147,35 @@ def get_strategies(db: Session = Depends(get_db)) -> list[StrategyRead]:
     return [StrategyRead.model_validate(ensure_default_strategy(db))]
 
 
+@router.patch("/strategies/{strategy_id}", response_model=StrategyRead, tags=["strategies"])
+def patch_strategy(
+    strategy_id: int,
+    payload: StrategyUpdate,
+    db: Session = Depends(get_db),
+) -> StrategyRead:
+    strategy = update_strategy(db, strategy_id, payload)
+    if strategy is None:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+
+    return StrategyRead.model_validate(strategy)
+
+
 @router.get("/risk-settings", response_model=list[RiskSettingRead], tags=["risk"])
 def get_risk_settings(db: Session = Depends(get_db)) -> list[RiskSettingRead]:
     return [RiskSettingRead.model_validate(ensure_default_risk_settings(db))]
+
+
+@router.patch("/risk-settings/{risk_setting_id}", response_model=RiskSettingRead, tags=["risk"])
+def patch_risk_settings(
+    risk_setting_id: int,
+    payload: RiskSettingUpdate,
+    db: Session = Depends(get_db),
+) -> RiskSettingRead:
+    settings = update_risk_settings(db, risk_setting_id, payload)
+    if settings is None:
+        raise HTTPException(status_code=404, detail="Risk settings not found")
+
+    return RiskSettingRead.model_validate(settings)
 
 
 @router.get("/backtests", response_model=list[BacktestRunRead], tags=["backtests"])

@@ -17,7 +17,7 @@ import {
   Wand2
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { SignalChart } from "../components/SignalChart";
 import { EmptyState } from "../components/table/EmptyState";
@@ -40,7 +40,9 @@ import {
   fetchStrategies,
   fetchSymbols,
   refreshMarketData,
-  runBacktest
+  runBacktest,
+  updateRiskSettings,
+  updateStrategy
 } from "../services/api";
 import { useSignals } from "../hooks/useSignals";
 import { useTradingStore } from "../store/useTradingStore";
@@ -51,6 +53,18 @@ export function DashboardPage() {
   const { timeframe, setTimeframe } = useTradingStore();
   const [strategyOpen, setStrategyOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("Live");
+  const [strategyForm, setStrategyForm] = useState({
+    name: "",
+    timeframe: "15m",
+    status: "active",
+    description: ""
+  });
+  const [riskForm, setRiskForm] = useState({
+    maxRiskPerTrade: "1.0",
+    maxDailyLoss: "3.0",
+    maxOpenTrades: "3",
+    maxSymbolExposure: "20.0"
+  });
   const queryClient = useQueryClient();
   const symbolsQuery = useQuery({
     queryKey: ["symbols"],
@@ -124,6 +138,59 @@ export function DashboardPage() {
   const confidenceSparkline = signals.length
     ? signals.map((signal) => Math.round(signal.confidence * 100)).slice(-7)
     : [12, 18, 16, 22, 20, 26, 24];
+
+  useEffect(() => {
+    if (activeStrategy) {
+      setStrategyForm({
+        name: activeStrategy.name,
+        timeframe: activeStrategy.timeframe,
+        status: activeStrategy.status,
+        description: activeStrategy.description
+      });
+    }
+  }, [activeStrategy]);
+
+  useEffect(() => {
+    if (riskSettings) {
+      setRiskForm({
+        maxRiskPerTrade: (riskSettings.max_risk_per_trade * 100).toFixed(1),
+        maxDailyLoss: (riskSettings.max_daily_loss * 100).toFixed(1),
+        maxOpenTrades: String(riskSettings.max_open_trades),
+        maxSymbolExposure: (riskSettings.max_symbol_exposure * 100).toFixed(1)
+      });
+    }
+  }, [riskSettings]);
+
+  const settingsMutation = useMutation({
+    mutationFn: async () => {
+      if (!activeStrategy || !riskSettings) {
+        throw new Error("Settings have not loaded yet");
+      }
+
+      const [strategy, risk] = await Promise.all([
+        updateStrategy(activeStrategy.id, {
+          name: strategyForm.name.trim(),
+          timeframe: strategyForm.timeframe,
+          status: strategyForm.status,
+          description: strategyForm.description.trim()
+        }),
+        updateRiskSettings(riskSettings.id, {
+          max_risk_per_trade: percentInputToDecimal(riskForm.maxRiskPerTrade),
+          max_daily_loss: percentInputToDecimal(riskForm.maxDailyLoss),
+          max_open_trades: Math.max(1, Number.parseInt(riskForm.maxOpenTrades, 10) || 1),
+          max_symbol_exposure: percentInputToDecimal(riskForm.maxSymbolExposure)
+        })
+      ]);
+
+      return { strategy, risk };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["strategies"] });
+      queryClient.invalidateQueries({ queryKey: ["risk-settings"] });
+      queryClient.invalidateQueries({ queryKey: ["backtests"] });
+      setStrategyOpen(false);
+    }
+  });
 
   const metrics = [
     {
@@ -240,6 +307,10 @@ export function DashboardPage() {
           Backtest completed for {backtestMutation.data.symbol}: {formatPercent(backtestMutation.data.total_return)} return, {formatPercent(backtestMutation.data.win_rate)} win rate.
         </Alert>
       ) : null}
+      {settingsMutation.isError ? (
+        <Alert tone="error">Unable to save strategy settings. Check the form values and try again.</Alert>
+      ) : null}
+      {settingsMutation.isSuccess ? <Alert tone="success">Strategy and risk settings saved.</Alert> : null}
 
       <motion.section
         className="grid grid-cols-1 gap-4 md:grid-cols-2 2xl:grid-cols-4"
@@ -527,17 +598,79 @@ export function DashboardPage() {
             <Button variant="ghost" onClick={() => setStrategyOpen(false)}>
               Cancel
             </Button>
-            <Button icon={Play} onClick={() => setStrategyOpen(false)}>
+            <Button
+              icon={Play}
+              loading={settingsMutation.isPending}
+              disabled={!activeStrategy || !riskSettings}
+              onClick={() => settingsMutation.mutate()}
+            >
               Apply tuning
             </Button>
           </>
         }
       >
         <div className="grid gap-4">
-          <Alert tone="info">Changes apply to simulation first, then require approval for live deployment.</Alert>
-          <Input label="Confidence floor" placeholder="68%" />
-          <Select label="Model profile" options={["Balanced", "Defensive", "Aggressive"]} />
-          <ToggleSwitch label="Require risk officer approval" checked />
+          <Alert tone="info">Saved settings are used by future backtests and dashboard risk summaries.</Alert>
+          <Input
+            label="Strategy name"
+            value={strategyForm.name}
+            onChange={(event) => setStrategyForm((current) => ({ ...current, name: event.target.value }))}
+            placeholder="Strategy name"
+          />
+          <Select
+            label="Strategy timeframe"
+            options={["15m", "1h", "4h", "1d"]}
+            value={strategyForm.timeframe}
+            onChange={(event) => setStrategyForm((current) => ({ ...current, timeframe: event.target.value }))}
+          />
+          <Select
+            label="Strategy status"
+            options={["active", "draft", "paused"]}
+            value={strategyForm.status}
+            onChange={(event) => setStrategyForm((current) => ({ ...current, status: event.target.value }))}
+          />
+          <Textarea
+            label="Strategy description"
+            value={strategyForm.description}
+            onChange={(event) => setStrategyForm((current) => ({ ...current, description: event.target.value }))}
+          />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Input
+              label="Risk per trade (%)"
+              type="number"
+              min="0.1"
+              max="100"
+              step="0.1"
+              value={riskForm.maxRiskPerTrade}
+              onChange={(event) => setRiskForm((current) => ({ ...current, maxRiskPerTrade: event.target.value }))}
+            />
+            <Input
+              label="Daily loss limit (%)"
+              type="number"
+              min="0.1"
+              max="100"
+              step="0.1"
+              value={riskForm.maxDailyLoss}
+              onChange={(event) => setRiskForm((current) => ({ ...current, maxDailyLoss: event.target.value }))}
+            />
+            <Input
+              label="Max open trades"
+              type="number"
+              min="1"
+              max="50"
+              value={riskForm.maxOpenTrades}
+              onChange={(event) => setRiskForm((current) => ({ ...current, maxOpenTrades: event.target.value }))}
+            />
+            <Input
+              label="Symbol exposure (%)"
+              type="number"
+              min="0.1"
+              max="100"
+              step="0.1"
+              value={riskForm.maxSymbolExposure}
+              onChange={(event) => setRiskForm((current) => ({ ...current, maxSymbolExposure: event.target.value }))}
+            />
+          </div>
         </div>
       </Modal>
     </div>
@@ -569,6 +702,15 @@ function backtestSparkline(totalReturn: number) {
 
 function formatPercent(value: number) {
   return `${value >= 0 ? "+" : ""}${(value * 100).toFixed(2)}%`;
+}
+
+function percentInputToDecimal(value: string) {
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed)) {
+    return 0.01;
+  }
+
+  return Math.min(1, Math.max(0.001, parsed / 100));
 }
 
 function formatRelativeTime(value: string) {

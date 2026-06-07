@@ -124,6 +124,13 @@ class StrategyRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class StrategyUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=120)
+    description: str | None = Field(default=None, max_length=500)
+    timeframe: str | None = Field(default=None, max_length=8)
+    status: str | None = Field(default=None, max_length=16)
+
+
 class RiskSettingRead(BaseModel):
     id: int
     name: str
@@ -135,6 +142,15 @@ class RiskSettingRead(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class RiskSettingUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=120)
+    max_risk_per_trade: float | None = Field(default=None, gt=0, le=1)
+    max_daily_loss: float | None = Field(default=None, gt=0, le=1)
+    max_open_trades: int | None = Field(default=None, ge=1, le=50)
+    max_symbol_exposure: float | None = Field(default=None, gt=0, le=1)
+    status: str | None = Field(default=None, max_length=16)
 
 
 class BacktestRunRequest(BaseModel):
