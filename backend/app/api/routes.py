@@ -1,0 +1,130 @@
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session
+
+from app.db.deps import get_db
+from app.models import MarketCandle, Signal
+from app.schemas.trading import (
+    MarketCandleRead,
+    MarketDataSyncRequest,
+    MarketDataSyncResponse,
+    RiskSettingRead,
+    SignalGenerateRequest,
+    SignalRead,
+    StrategyRead,
+    SymbolCreate,
+    SymbolRead,
+)
+from app.services.indicators.technical import moving_average_snapshot
+from app.services.repository import (
+    create_symbol,
+    ensure_default_risk_settings,
+    ensure_default_strategy,
+    list_candles,
+    list_symbols,
+)
+from app.services.market_data.binance import MarketDataProviderError
+from app.services.market_data.sync import sync_market_data
+from app.services.signals import generate_signals, list_signals
+
+router = APIRouter()
+
+
+@router.get("/health", tags=["health"])
+def health_check() -> dict[str, str]:
+    return {"status": "ok", "service": "trading-ai-backend"}
+
+
+@router.get("/symbols", response_model=list[SymbolRead], tags=["symbols"])
+def get_symbols(db: Session = Depends(get_db)) -> list[SymbolRead]:
+    return [SymbolRead.model_validate(symbol) for symbol in list_symbols(db)]
+
+
+@router.post("/symbols", response_model=SymbolRead, tags=["symbols"])
+def post_symbol(payload: SymbolCreate, db: Session = Depends(get_db)) -> SymbolRead:
+    return SymbolRead.model_validate(create_symbol(db, payload))
+
+
+@router.get("/candles", response_model=list[MarketCandleRead], tags=["market-data"])
+def get_candles(
+    symbol: str = Query("BTCUSDT"),
+    timeframe: str = Query("15m"),
+    limit: int = Query(200, ge=1, le=500),
+    db: Session = Depends(get_db),
+) -> list[MarketCandleRead]:
+    return [market_candle_to_schema(candle) for candle in list_candles(db, symbol, timeframe, limit)]
+
+
+@router.post("/market-data/sync", response_model=MarketDataSyncResponse, tags=["market-data"])
+def post_market_data_sync(
+    payload: MarketDataSyncRequest,
+    db: Session = Depends(get_db),
+) -> MarketDataSyncResponse:
+    try:
+        results = sync_market_data(db, payload.symbols, payload.timeframe, payload.limit)
+    except MarketDataProviderError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    signals = generate_signals(db, timeframe=payload.timeframe) if payload.regenerate_signals else []
+
+    return MarketDataSyncResponse(
+        provider="binance",
+        timeframe=payload.timeframe,
+        results=results,
+        signals=[signal_to_schema(signal) for signal in signals],
+    )
+
+
+@router.get("/signals", response_model=list[SignalRead], tags=["signals"])
+def get_signals(db: Session = Depends(get_db)) -> list[SignalRead]:
+    return [signal_to_schema(signal) for signal in list_signals(db)]
+
+
+@router.post("/signals/generate", response_model=list[SignalRead], tags=["signals"])
+def post_generate_signals(
+    payload: SignalGenerateRequest | None = None,
+    db: Session = Depends(get_db),
+) -> list[SignalRead]:
+    payload = payload or SignalGenerateRequest()
+    return [signal_to_schema(signal) for signal in generate_signals(db, payload.symbol, payload.timeframe)]
+
+
+@router.get("/strategies", response_model=list[StrategyRead], tags=["strategies"])
+def get_strategies(db: Session = Depends(get_db)) -> list[StrategyRead]:
+    return [StrategyRead.model_validate(ensure_default_strategy(db))]
+
+
+@router.get("/risk-settings", response_model=list[RiskSettingRead], tags=["risk"])
+def get_risk_settings(db: Session = Depends(get_db)) -> list[RiskSettingRead]:
+    return [RiskSettingRead.model_validate(ensure_default_risk_settings(db))]
+
+
+@router.get("/indicators/preview", tags=["indicators"])
+def indicator_preview() -> dict[str, float]:
+    return moving_average_snapshot([101.2, 102.4, 101.9, 103.1, 104.8, 104.2])
+
+
+def signal_to_schema(signal: Signal) -> SignalRead:
+    return SignalRead(
+        id=signal.id,
+        symbol=signal.symbol_ref.symbol,
+        direction=signal.direction,
+        confidence=signal.confidence,
+        timeframe=signal.timeframe,
+        reason=signal.reason,
+        status=signal.status,
+        created_at=signal.created_at,
+    )
+
+
+def market_candle_to_schema(candle: MarketCandle) -> MarketCandleRead:
+    return MarketCandleRead(
+        id=candle.id,
+        symbol=candle.symbol_ref.symbol,
+        timeframe=candle.timeframe,
+        opened_at=candle.opened_at,
+        open=candle.open,
+        high=candle.high,
+        low=candle.low,
+        close=candle.close,
+        volume=candle.volume,
+    )
