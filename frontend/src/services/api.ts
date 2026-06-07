@@ -148,6 +148,8 @@ export type AIAnalysisRequest = {
 };
 
 export type AIAnalysis = {
+  id: number;
+  signal_id: number | null;
   provider: string;
   symbol: string;
   timeframe: string;
@@ -223,5 +225,17 @@ export async function runBacktest(payload: BacktestRunRequest): Promise<Backtest
 
 export async function analyzeSignal(payload: AIAnalysisRequest): Promise<AIAnalysis> {
   const response = await apiClient.post<AIAnalysis>("/api/ai/analyze-signal", payload);
+  return response.data;
+}
+
+export async function fetchAIAnalyses(limit = 5): Promise<AIAnalysis[]> {
+  const response = await apiClient.get<AIAnalysis[]>("/api/ai/analyses", {
+    params: { limit }
+  });
+  return response.data;
+}
+
+export async function fetchAIAnalysis(id: number): Promise<AIAnalysis> {
+  const response = await apiClient.get<AIAnalysis>(`/api/ai/analyses/${id}`);
   return response.data;
 }

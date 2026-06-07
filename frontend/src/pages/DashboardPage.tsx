@@ -35,6 +35,7 @@ import { Textarea } from "../components/ui/Textarea";
 import {
   analyzeSignal,
   fetchBacktests,
+  fetchAIAnalyses,
   fetchCandles,
   fetchMarketDataSchedule,
   fetchRiskSettings,
@@ -45,6 +46,7 @@ import {
   updateRiskSettings,
   updateStrategy
 } from "../services/api";
+import type { AIAnalysis } from "../services/api";
 import { useSignals } from "../hooks/useSignals";
 import { useTradingStore } from "../store/useTradingStore";
 import { cn } from "../utils/cn";
@@ -54,6 +56,7 @@ export function DashboardPage() {
   const { timeframe, setTimeframe } = useTradingStore();
   const [strategyOpen, setStrategyOpen] = useState(false);
   const [analysisOpen, setAnalysisOpen] = useState(false);
+  const [selectedAnalysis, setSelectedAnalysis] = useState<AIAnalysis | null>(null);
   const [activeTab, setActiveTab] = useState("Live");
   const [strategyForm, setStrategyForm] = useState({
     name: "",
@@ -87,6 +90,10 @@ export function DashboardPage() {
   const backtestsQuery = useQuery({
     queryKey: ["backtests"],
     queryFn: () => fetchBacktests(5)
+  });
+  const aiAnalysesQuery = useQuery({
+    queryKey: ["ai-analyses"],
+    queryFn: () => fetchAIAnalyses(5)
   });
 
   const selectedSymbol = symbolsQuery.data?.[0]?.symbol ?? "BTCUSDT";
@@ -133,6 +140,7 @@ export function DashboardPage() {
   const riskSettings = riskSettingsQuery.data?.[0];
   const activeStrategy = strategiesQuery.data?.[0];
   const latestBacktest = backtestMutation.data ?? backtestsQuery.data?.[0];
+  const latestAIAnalysis = selectedAnalysis ?? aiAnalysesQuery.data?.[0];
   const bestSignal = signals.reduce(
     (best, signal) => (signal.confidence > (best?.confidence ?? 0) ? signal : best),
     signals[0]
@@ -195,10 +203,13 @@ export function DashboardPage() {
   });
   const analysisMutation = useMutation({
     mutationFn: analyzeSignal,
-    onSuccess: () => {
+    onSuccess: (analysis) => {
+      setSelectedAnalysis(analysis);
+      queryClient.invalidateQueries({ queryKey: ["ai-analyses"] });
       setAnalysisOpen(true);
     }
   });
+  const activeAnalysis = selectedAnalysis ?? analysisMutation.data;
 
   const metrics = [
     {
@@ -486,6 +497,14 @@ export function DashboardPage() {
           <div className="mt-5 grid gap-4">
             {[
               {
+                title: "Latest AI analysis",
+                detail: latestAIAnalysis
+                  ? `${latestAIAnalysis.symbol} ${latestAIAnalysis.direction.toUpperCase()} at ${formatUnsignedPercent(latestAIAnalysis.confidence)} confidence`
+                  : "No AI explanation saved yet",
+                time: latestAIAnalysis ? formatRelativeTime(latestAIAnalysis.generated_at) : "ready",
+                icon: Sparkles
+              },
+              {
                 title: "Latest backtest",
                 detail: latestBacktest
                   ? `${formatPercent(latestBacktest.total_return)} return, ${formatPercent(latestBacktest.win_rate)} win rate, ${latestBacktest.trades_count} trades`
@@ -599,6 +618,7 @@ export function DashboardPage() {
               ["Symbols", `${symbolsQuery.data?.length ?? 0}`, "bg-emerald-400/15 text-emerald-700 dark:text-emerald-100"],
               ["Candles", `${candlesQuery.data?.length ?? 0}`, "bg-cyan-400/15 text-cyan-700 dark:text-cyan-100"],
               ["Strategies", `${strategiesQuery.data?.length ?? 0}`, "bg-violet-400/15 text-violet-700 dark:text-violet-100"],
+              ["AI analyses", `${aiAnalysesQuery.data?.length ?? 0}`, "bg-violet-400/15 text-violet-700 dark:text-violet-100"],
               ["Backtest return", latestBacktest ? formatPercent(latestBacktest.total_return) : "Not run", "bg-emerald-400/15 text-emerald-700 dark:text-emerald-100"],
               ["Max drawdown", latestBacktest ? formatPercent(latestBacktest.max_drawdown) : "Not run", "bg-rose-400/15 text-rose-700 dark:text-rose-100"],
               ["Max daily loss", riskSettings ? `${(riskSettings.max_daily_loss * 100).toFixed(1)}%` : "Loading", "bg-amber-400/15 text-amber-700 dark:text-amber-100"]
@@ -612,6 +632,40 @@ export function DashboardPage() {
               </div>
             ))}
           </div>
+
+          {aiAnalysesQuery.data?.length ? (
+            <div className="mt-5 border-t border-white/10 pt-4">
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-sm font-black text-slate-950 dark:text-white">Recent AI Insights</h3>
+                <Badge tone="info">{aiAnalysesQuery.data.length}</Badge>
+              </div>
+              <div className="grid gap-2">
+                {aiAnalysesQuery.data.slice(0, 3).map((analysis) => (
+                  <button
+                    key={analysis.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedAnalysis(analysis);
+                      setAnalysisOpen(true);
+                    }}
+                    className="group rounded-[8px] border border-white/10 bg-white/10 p-3 text-left backdrop-blur-md transition hover:bg-white/15 dark:bg-white/5"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm font-black text-slate-900 dark:text-white">
+                        {analysis.symbol} {analysis.direction.toUpperCase()}
+                      </span>
+                      <span className="text-xs font-bold text-slate-400 transition group-hover:text-cyan-500 dark:text-white/40">
+                        {formatRelativeTime(analysis.generated_at)}
+                      </span>
+                    </div>
+                    <p className="mt-1 line-clamp-2 text-xs font-medium leading-5 text-slate-500 dark:text-white/50">
+                      {analysis.suggested_action}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </Card>
       </section>
 
@@ -713,34 +767,34 @@ export function DashboardPage() {
       <Modal
         open={analysisOpen}
         onClose={() => setAnalysisOpen(false)}
-        title={analysisMutation.data ? `${analysisMutation.data.symbol} AI Signal Analysis` : "AI Signal Analysis"}
+        title={activeAnalysis ? `${activeAnalysis.symbol} AI Signal Analysis` : "AI Signal Analysis"}
         footer={
           <Button variant="ghost" onClick={() => setAnalysisOpen(false)}>
             Close
           </Button>
         }
       >
-        {analysisMutation.data ? (
+        {activeAnalysis ? (
           <div className="grid gap-4">
             <Alert tone="info">
-              {analysisMutation.data.provider} analysis generated {formatRelativeTime(analysisMutation.data.generated_at)}
+              {activeAnalysis.provider} analysis generated {formatRelativeTime(activeAnalysis.generated_at)}
             </Alert>
             <div className="rounded-[8px] border border-white/10 bg-white/10 p-4 backdrop-blur-lg dark:bg-white/5">
               <div className="flex flex-wrap items-center gap-2">
-                <Badge tone={analysisMutation.data.direction === "sell" ? "error" : analysisMutation.data.direction === "buy" ? "success" : "info"}>
-                  {analysisMutation.data.direction.toUpperCase()}
+                <Badge tone={activeAnalysis.direction === "sell" ? "error" : activeAnalysis.direction === "buy" ? "success" : "info"}>
+                  {activeAnalysis.direction.toUpperCase()}
                 </Badge>
-                <Badge>{formatUnsignedPercent(analysisMutation.data.confidence)} confidence</Badge>
-                <Badge>{analysisMutation.data.timeframe}</Badge>
+                <Badge>{formatUnsignedPercent(activeAnalysis.confidence)} confidence</Badge>
+                <Badge>{activeAnalysis.timeframe}</Badge>
               </div>
-              <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-white/65">{analysisMutation.data.explanation}</p>
+              <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-white/65">{activeAnalysis.explanation}</p>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="rounded-[8px] border border-white/10 bg-white/10 p-4 backdrop-blur-lg dark:bg-white/5">
                 <h3 className="text-sm font-black text-slate-950 dark:text-white">Reasoning</h3>
                 <ul className="mt-3 grid gap-2 text-sm text-slate-600 dark:text-white/60">
-                  {analysisMutation.data.reasoning.map((item) => (
+                  {activeAnalysis.reasoning.map((item) => (
                     <li key={item}>{item}</li>
                   ))}
                 </ul>
@@ -748,7 +802,7 @@ export function DashboardPage() {
               <div className="rounded-[8px] border border-white/10 bg-white/10 p-4 backdrop-blur-lg dark:bg-white/5">
                 <h3 className="text-sm font-black text-slate-950 dark:text-white">Risk Notes</h3>
                 <ul className="mt-3 grid gap-2 text-sm text-slate-600 dark:text-white/60">
-                  {analysisMutation.data.risk_notes.map((item) => (
+                  {activeAnalysis.risk_notes.map((item) => (
                     <li key={item}>{item}</li>
                   ))}
                 </ul>
@@ -757,11 +811,11 @@ export function DashboardPage() {
 
             <div className="rounded-[8px] border border-white/10 bg-white/10 p-4 backdrop-blur-lg dark:bg-white/5">
               <h3 className="text-sm font-black text-slate-950 dark:text-white">Suggested Action</h3>
-              <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-white/65">{analysisMutation.data.suggested_action}</p>
+              <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-white/65">{activeAnalysis.suggested_action}</p>
             </div>
 
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {Object.entries(analysisMutation.data.indicators).map(([label, value]) => (
+              {Object.entries(activeAnalysis.indicators).map(([label, value]) => (
                 <div key={label} className="rounded-[8px] border border-white/10 bg-white/10 p-3 backdrop-blur-lg dark:bg-white/5">
                   <p className="text-xs font-bold uppercase text-slate-500 dark:text-white/40">{label.replace("_", " ")}</p>
                   <p className="mt-1 text-sm font-black text-slate-950 dark:text-white">{value.toFixed(2)}</p>

@@ -186,6 +186,8 @@ class AIAnalysisRequest(BaseModel):
 
 
 class AIAnalysisResponse(BaseModel):
+    id: int
+    signal_id: int | None = None
     provider: str
     symbol: str
     timeframe: str

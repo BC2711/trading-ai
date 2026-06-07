@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -88,6 +88,7 @@ class Signal(Base):
 
     symbol_ref: Mapped[Symbol] = relationship(back_populates="signals")
     strategy_ref: Mapped[Strategy | None] = relationship(back_populates="signals")
+    ai_analyses: Mapped[list["AIAnalysisRecord"]] = relationship(back_populates="signal_ref")
 
 
 class BacktestRun(Base):
@@ -111,3 +112,24 @@ class BacktestRun(Base):
 
     symbol_ref: Mapped[Symbol] = relationship()
     strategy_ref: Mapped[Strategy | None] = relationship(back_populates="backtest_runs")
+
+
+class AIAnalysisRecord(Base):
+    __tablename__ = "ai_analyses"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    signal_id: Mapped[int | None] = mapped_column(ForeignKey("signals.id", ondelete="SET NULL"), nullable=True, index=True)
+    provider: Mapped[str] = mapped_column(String(48), default="rules-fallback")
+    symbol: Mapped[str] = mapped_column(String(24), index=True)
+    timeframe: Mapped[str] = mapped_column(String(8), index=True)
+    direction: Mapped[str] = mapped_column(String(16), index=True)
+    confidence: Mapped[float] = mapped_column(Float)
+    explanation: Mapped[str] = mapped_column(String(1200))
+    reasoning: Mapped[list[str]] = mapped_column(JSON)
+    risk_notes: Mapped[list[str]] = mapped_column(JSON)
+    suggested_action: Mapped[str] = mapped_column(String(500))
+    indicators: Mapped[dict[str, float]] = mapped_column(JSON)
+    backtest_summary: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+
+    signal_ref: Mapped[Signal | None] = relationship(back_populates="ai_analyses")

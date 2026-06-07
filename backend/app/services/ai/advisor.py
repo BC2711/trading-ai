@@ -1,9 +1,7 @@
-from datetime import datetime, timezone
-
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import BacktestRun, Signal
+from app.models import AIAnalysisRecord, BacktestRun, Signal
 from app.schemas.trading import AIAnalysisRequest, AIAnalysisResponse
 from app.services.indicators.technical import indicator_snapshot
 from app.services.repository import ensure_default_risk_settings, ensure_default_strategy, list_candles, seed_defaults
@@ -37,7 +35,8 @@ def analyze_signal(db: Session, payload: AIAnalysisRequest) -> AIAnalysisRespons
     risk_notes = build_risk_notes(direction, confidence, snapshot, risk_settings)
     backtest_summary = latest_backtest.summary if latest_backtest else None
 
-    return AIAnalysisResponse(
+    record = AIAnalysisRecord(
+        signal_id=signal.id if signal else None,
         provider="rules-fallback",
         symbol=symbol,
         timeframe=timeframe,
@@ -49,7 +48,38 @@ def analyze_signal(db: Session, payload: AIAnalysisRequest) -> AIAnalysisRespons
         suggested_action=build_suggested_action(direction, confidence, risk_notes),
         indicators={key: round(value, 4) for key, value in snapshot.items()},
         backtest_summary=backtest_summary,
-        generated_at=datetime.now(timezone.utc),
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return analysis_to_response(record)
+
+
+def list_ai_analyses(db: Session, limit: int = 10) -> list[AIAnalysisRecord]:
+    statement = select(AIAnalysisRecord).order_by(AIAnalysisRecord.created_at.desc()).limit(limit)
+    return list(db.scalars(statement).all())
+
+
+def get_ai_analysis(db: Session, analysis_id: int) -> AIAnalysisRecord | None:
+    return db.get(AIAnalysisRecord, analysis_id)
+
+
+def analysis_to_response(record: AIAnalysisRecord) -> AIAnalysisResponse:
+    return AIAnalysisResponse(
+        id=record.id,
+        signal_id=record.signal_id,
+        provider=record.provider,
+        symbol=record.symbol,
+        timeframe=record.timeframe,
+        direction=record.direction,
+        confidence=record.confidence,
+        explanation=record.explanation,
+        reasoning=record.reasoning,
+        risk_notes=record.risk_notes,
+        suggested_action=record.suggested_action,
+        indicators=record.indicators,
+        backtest_summary=record.backtest_summary,
+        generated_at=record.created_at,
     )
 
 

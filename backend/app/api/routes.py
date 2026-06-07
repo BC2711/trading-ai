@@ -38,7 +38,7 @@ from app.services.repository import (
 from app.services.market_data.binance import MarketDataProviderError
 from app.services.market_data.jobs import run_market_data_refresh
 from app.services.market_data.sync import sync_market_data
-from app.services.ai.advisor import analyze_signal
+from app.services.ai.advisor import analyze_signal, analysis_to_response, get_ai_analysis, list_ai_analyses
 from app.services.backtesting.engine import list_backtest_runs, run_backtest
 from app.services.signals import generate_signals, list_signals
 from app.workers.tasks import refresh_market_data
@@ -211,6 +211,26 @@ def post_ai_analyze_signal(
         return analyze_signal(db, payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/ai/analyses", response_model=list[AIAnalysisResponse], tags=["ai"])
+def get_ai_analyses(
+    limit: int = Query(10, ge=1, le=50),
+    db: Session = Depends(get_db),
+) -> list[AIAnalysisResponse]:
+    return [analysis_to_response(record) for record in list_ai_analyses(db, limit)]
+
+
+@router.get("/ai/analyses/{analysis_id}", response_model=AIAnalysisResponse, tags=["ai"])
+def get_ai_analysis_by_id(
+    analysis_id: int,
+    db: Session = Depends(get_db),
+) -> AIAnalysisResponse:
+    record = get_ai_analysis(db, analysis_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="AI analysis not found")
+
+    return analysis_to_response(record)
 
 
 @router.get("/indicators/preview", tags=["indicators"])
