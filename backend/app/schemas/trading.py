@@ -135,3 +135,28 @@ class RiskSettingRead(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class BacktestRunRequest(BaseModel):
+    symbol: str = "BTCUSDT"
+    timeframe: str = "15m"
+    initial_balance: float = Field(default=10000.0, gt=0)
+    lookback: int = Field(default=240, ge=60, le=1000)
+
+
+class BacktestRunRead(BaseModel):
+    id: int
+    symbol: str
+    strategy: str | None
+    timeframe: str
+    initial_balance: float
+    ending_balance: float
+    total_return: float
+    win_rate: float
+    max_drawdown: float
+    trades_count: int
+    winning_trades: int
+    losing_trades: int
+    status: str
+    summary: str
+    created_at: datetime

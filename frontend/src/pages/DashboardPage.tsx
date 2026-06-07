@@ -33,12 +33,14 @@ import { Skeleton } from "../components/ui/LoadingSpinner";
 import { StatCard } from "../components/ui/StatCard";
 import { Textarea } from "../components/ui/Textarea";
 import {
+  fetchBacktests,
   fetchCandles,
   fetchMarketDataSchedule,
   fetchRiskSettings,
   fetchStrategies,
   fetchSymbols,
-  refreshMarketData
+  refreshMarketData,
+  runBacktest
 } from "../services/api";
 import { useSignals } from "../hooks/useSignals";
 import { useTradingStore } from "../store/useTradingStore";
@@ -66,6 +68,10 @@ export function DashboardPage() {
     queryKey: ["risk-settings"],
     queryFn: fetchRiskSettings
   });
+  const backtestsQuery = useQuery({
+    queryKey: ["backtests"],
+    queryFn: () => fetchBacktests(5)
+  });
 
   const selectedSymbol = symbolsQuery.data?.[0]?.symbol ?? "BTCUSDT";
   const backendTimeframe = scheduleQuery.data?.timeframe ?? "15m";
@@ -89,6 +95,18 @@ export function DashboardPage() {
       queryClient.invalidateQueries({ queryKey: ["candles"] });
     }
   });
+  const backtestMutation = useMutation({
+    mutationFn: () =>
+      runBacktest({
+        symbol: selectedSymbol,
+        timeframe: backendTimeframe,
+        initial_balance: 10000,
+        lookback: 240
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["backtests"] });
+    }
+  });
 
   const latestCandle = candlesQuery.data?.at(-1);
   const previousCandle = candlesQuery.data?.at(-2);
@@ -98,6 +116,7 @@ export function DashboardPage() {
       : 0;
   const riskSettings = riskSettingsQuery.data?.[0];
   const activeStrategy = strategiesQuery.data?.[0];
+  const latestBacktest = backtestMutation.data ?? backtestsQuery.data?.[0];
   const bestSignal = signals.reduce(
     (best, signal) => (signal.confidence > (best?.confidence ?? 0) ? signal : best),
     signals[0]
@@ -141,7 +160,7 @@ export function DashboardPage() {
       trendDirection: "flat" as const,
       tone: "amber" as const,
       icon: Target,
-      sparkline: [44, 39, 41, 36, 31, 28, 26]
+      sparkline: latestBacktest ? backtestSparkline(latestBacktest.total_return) : [44, 39, 41, 36, 31, 28, 26]
     }
   ];
 
@@ -194,7 +213,9 @@ export function DashboardPage() {
                 </button>
               ))}
             </div>
-            <Button icon={Play}>Run backtest</Button>
+            <Button icon={Play} loading={backtestMutation.isPending} onClick={() => backtestMutation.mutate()}>
+              Run backtest
+            </Button>
             <Button variant="secondary" icon={Wand2} onClick={() => setStrategyOpen(true)}>
               Tune model
             </Button>
@@ -209,6 +230,14 @@ export function DashboardPage() {
       {syncMutation.isSuccess ? (
         <Alert tone="success">
           Refreshed {syncMutation.data.results.reduce((total, result) => total + result.fetched, 0)} candles from {syncMutation.data.provider}; generated {syncMutation.data.generated_signal_count} signals.
+        </Alert>
+      ) : null}
+      {backtestMutation.isError ? (
+        <Alert tone="warning">Backtest failed. Confirm there is enough candle history for {selectedSymbol} and try again.</Alert>
+      ) : null}
+      {backtestMutation.isSuccess ? (
+        <Alert tone="success">
+          Backtest completed for {backtestMutation.data.symbol}: {formatPercent(backtestMutation.data.total_return)} return, {formatPercent(backtestMutation.data.win_rate)} win rate.
         </Alert>
       ) : null}
 
@@ -350,6 +379,14 @@ export function DashboardPage() {
           <div className="mt-5 grid gap-4">
             {[
               {
+                title: "Latest backtest",
+                detail: latestBacktest
+                  ? `${formatPercent(latestBacktest.total_return)} return, ${formatPercent(latestBacktest.win_rate)} win rate, ${latestBacktest.trades_count} trades`
+                  : "No backtest run recorded yet",
+                time: latestBacktest ? formatRelativeTime(latestBacktest.created_at) : "ready",
+                icon: Play
+              },
+              {
                 title: "Market data schedule",
                 detail: scheduleQuery.data
                   ? `${scheduleQuery.data.symbols.join(", ")} every ${scheduleQuery.data.interval_minutes} minutes`
@@ -455,6 +492,8 @@ export function DashboardPage() {
               ["Symbols", `${symbolsQuery.data?.length ?? 0}`, "bg-emerald-400/15 text-emerald-700 dark:text-emerald-100"],
               ["Candles", `${candlesQuery.data?.length ?? 0}`, "bg-cyan-400/15 text-cyan-700 dark:text-cyan-100"],
               ["Strategies", `${strategiesQuery.data?.length ?? 0}`, "bg-violet-400/15 text-violet-700 dark:text-violet-100"],
+              ["Backtest return", latestBacktest ? formatPercent(latestBacktest.total_return) : "Not run", "bg-emerald-400/15 text-emerald-700 dark:text-emerald-100"],
+              ["Max drawdown", latestBacktest ? formatPercent(latestBacktest.max_drawdown) : "Not run", "bg-rose-400/15 text-rose-700 dark:text-rose-100"],
               ["Max daily loss", riskSettings ? `${(riskSettings.max_daily_loss * 100).toFixed(1)}%` : "Loading", "bg-amber-400/15 text-amber-700 dark:text-amber-100"]
             ].map(([label, value, tone]) => (
               <div
@@ -519,6 +558,17 @@ function candlesToSparkline(candles?: Array<{ close: number }>) {
   }
 
   return candles.slice(-7).map((candle) => candle.close);
+}
+
+function backtestSparkline(totalReturn: number) {
+  const baseline = 36;
+  const drift = Math.max(-18, Math.min(22, totalReturn * 220));
+
+  return [baseline - 8, baseline - 4, baseline - 6, baseline + 2, baseline + drift * 0.35, baseline + drift * 0.7, baseline + drift];
+}
+
+function formatPercent(value: number) {
+  return `${value >= 0 ? "+" : ""}${(value * 100).toFixed(2)}%`;
 }
 
 function formatRelativeTime(value: string) {

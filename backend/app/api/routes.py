@@ -4,6 +4,8 @@ from sqlalchemy.orm import Session
 from app.db.deps import get_db
 from app.models import MarketCandle, Signal
 from app.schemas.trading import (
+    BacktestRunRead,
+    BacktestRunRequest,
     MarketCandleRead,
     MarketDataRefreshRequest,
     MarketDataRefreshResponse,
@@ -30,6 +32,7 @@ from app.services.repository import (
 from app.services.market_data.binance import MarketDataProviderError
 from app.services.market_data.jobs import run_market_data_refresh
 from app.services.market_data.sync import sync_market_data
+from app.services.backtesting.engine import list_backtest_runs, run_backtest
 from app.services.signals import generate_signals, list_signals
 from app.workers.tasks import refresh_market_data
 
@@ -145,6 +148,27 @@ def get_risk_settings(db: Session = Depends(get_db)) -> list[RiskSettingRead]:
     return [RiskSettingRead.model_validate(ensure_default_risk_settings(db))]
 
 
+@router.get("/backtests", response_model=list[BacktestRunRead], tags=["backtests"])
+def get_backtests(
+    limit: int = Query(10, ge=1, le=50),
+    db: Session = Depends(get_db),
+) -> list[BacktestRunRead]:
+    return [backtest_to_schema(run) for run in list_backtest_runs(db, limit)]
+
+
+@router.post("/backtests/run", response_model=BacktestRunRead, tags=["backtests"])
+def post_backtest_run(
+    payload: BacktestRunRequest,
+    db: Session = Depends(get_db),
+) -> BacktestRunRead:
+    try:
+        run = run_backtest(db, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return backtest_to_schema(run)
+
+
 @router.get("/indicators/preview", tags=["indicators"])
 def indicator_preview() -> dict[str, float]:
     return moving_average_snapshot([101.2, 102.4, 101.9, 103.1, 104.8, 104.2])
@@ -174,4 +198,24 @@ def market_candle_to_schema(candle: MarketCandle) -> MarketCandleRead:
         low=candle.low,
         close=candle.close,
         volume=candle.volume,
+    )
+
+
+def backtest_to_schema(run) -> BacktestRunRead:
+    return BacktestRunRead(
+        id=run.id,
+        symbol=run.symbol_ref.symbol,
+        strategy=run.strategy_ref.name if run.strategy_ref else None,
+        timeframe=run.timeframe,
+        initial_balance=run.initial_balance,
+        ending_balance=run.ending_balance,
+        total_return=run.total_return,
+        win_rate=run.win_rate,
+        max_drawdown=run.max_drawdown,
+        trades_count=run.trades_count,
+        winning_trades=run.winning_trades,
+        losing_trades=run.losing_trades,
+        status=run.status,
+        summary=run.summary,
+        created_at=run.created_at,
     )

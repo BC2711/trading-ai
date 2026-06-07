@@ -57,6 +57,7 @@ class Strategy(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     signals: Mapped[list["Signal"]] = relationship(back_populates="strategy_ref")
+    backtest_runs: Mapped[list["BacktestRun"]] = relationship(back_populates="strategy_ref")
 
 
 class RiskSetting(Base):
@@ -87,3 +88,26 @@ class Signal(Base):
 
     symbol_ref: Mapped[Symbol] = relationship(back_populates="signals")
     strategy_ref: Mapped[Strategy | None] = relationship(back_populates="signals")
+
+
+class BacktestRun(Base):
+    __tablename__ = "backtest_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    symbol_id: Mapped[int] = mapped_column(ForeignKey("symbols.id", ondelete="CASCADE"), index=True)
+    strategy_id: Mapped[int | None] = mapped_column(ForeignKey("strategies.id", ondelete="SET NULL"), nullable=True)
+    timeframe: Mapped[str] = mapped_column(String(8), default="15m")
+    initial_balance: Mapped[float] = mapped_column(Float, default=10000.0)
+    ending_balance: Mapped[float] = mapped_column(Float, default=10000.0)
+    total_return: Mapped[float] = mapped_column(Float, default=0.0)
+    win_rate: Mapped[float] = mapped_column(Float, default=0.0)
+    max_drawdown: Mapped[float] = mapped_column(Float, default=0.0)
+    trades_count: Mapped[int] = mapped_column(Integer, default=0)
+    winning_trades: Mapped[int] = mapped_column(Integer, default=0)
+    losing_trades: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(16), default="completed")
+    summary: Mapped[str] = mapped_column(String(500), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+
+    symbol_ref: Mapped[Symbol] = relationship()
+    strategy_ref: Mapped[Strategy | None] = relationship(back_populates="backtest_runs")

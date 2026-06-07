@@ -106,6 +106,31 @@ export type MarketDataSchedule = {
   regenerate_signals: boolean;
 };
 
+export type BacktestRunRequest = {
+  symbol?: string;
+  timeframe?: string;
+  initial_balance?: number;
+  lookback?: number;
+};
+
+export type BacktestRun = {
+  id: number;
+  symbol: string;
+  strategy: string | null;
+  timeframe: string;
+  initial_balance: number;
+  ending_balance: number;
+  total_return: number;
+  win_rate: number;
+  max_drawdown: number;
+  trades_count: number;
+  winning_trades: number;
+  losing_trades: number;
+  status: string;
+  summary: string;
+  created_at: string;
+};
+
 export async function fetchSymbols(): Promise<SymbolResource[]> {
   const response = await apiClient.get<SymbolResource[]>("/api/symbols");
   return response.data;
@@ -140,5 +165,17 @@ export async function syncMarketData(payload: MarketDataSyncRequest): Promise<Ma
 
 export async function refreshMarketData(payload: MarketDataRefreshRequest): Promise<MarketDataRefreshResponse> {
   const response = await apiClient.post<MarketDataRefreshResponse>("/api/market-data/refresh", payload);
+  return response.data;
+}
+
+export async function fetchBacktests(limit = 5): Promise<BacktestRun[]> {
+  const response = await apiClient.get<BacktestRun[]>("/api/backtests", {
+    params: { limit }
+  });
+  return response.data;
+}
+
+export async function runBacktest(payload: BacktestRunRequest): Promise<BacktestRun> {
+  const response = await apiClient.post<BacktestRun>("/api/backtests/run", payload);
   return response.data;
 }
