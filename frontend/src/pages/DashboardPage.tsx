@@ -2,7 +2,6 @@ import { motion } from "framer-motion";
 import {
   Activity,
   ArrowUpRight,
-  BarChart3,
   Bot,
   Calendar,
   CircleDollarSign,
@@ -17,7 +16,7 @@ import {
   TrendingUp,
   Wand2
 } from "lucide-react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 
 import { SignalChart } from "../components/SignalChart";
@@ -33,49 +32,17 @@ import { Select } from "../components/ui/Select";
 import { Skeleton } from "../components/ui/LoadingSpinner";
 import { StatCard } from "../components/ui/StatCard";
 import { Textarea } from "../components/ui/Textarea";
-import { syncMarketData } from "../services/api";
+import {
+  fetchCandles,
+  fetchMarketDataSchedule,
+  fetchRiskSettings,
+  fetchStrategies,
+  fetchSymbols,
+  refreshMarketData
+} from "../services/api";
 import { useSignals } from "../hooks/useSignals";
 import { useTradingStore } from "../store/useTradingStore";
 import { cn } from "../utils/cn";
-
-const metrics = [
-  {
-    label: "Portfolio Equity",
-    value: "$100,000",
-    trend: "+1.8% today",
-    trendDirection: "up" as const,
-    tone: "cyan" as const,
-    icon: CircleDollarSign,
-    sparkline: [24, 30, 28, 42, 46, 51, 56]
-  },
-  {
-    label: "Open Risk",
-    value: "2.4%",
-    trend: "Within target",
-    trendDirection: "flat" as const,
-    tone: "emerald" as const,
-    icon: ShieldCheck,
-    sparkline: [30, 26, 25, 22, 24, 20, 19]
-  },
-  {
-    label: "Model Confidence",
-    value: "69%",
-    trend: "2 markets watched",
-    trendDirection: "up" as const,
-    tone: "violet" as const,
-    icon: Bot,
-    sparkline: [32, 34, 36, 35, 43, 47, 49]
-  },
-  {
-    label: "Execution Drift",
-    value: "0.7%",
-    trend: "-0.2% vs plan",
-    trendDirection: "down" as const,
-    tone: "amber" as const,
-    icon: Target,
-    sparkline: [44, 39, 41, 36, 31, 28, 26]
-  }
-];
 
 export function DashboardPage() {
   const { signals, isLoading, isError } = useSignals();
@@ -83,30 +50,114 @@ export function DashboardPage() {
   const [strategyOpen, setStrategyOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("Live");
   const queryClient = useQueryClient();
+  const symbolsQuery = useQuery({
+    queryKey: ["symbols"],
+    queryFn: fetchSymbols
+  });
+  const scheduleQuery = useQuery({
+    queryKey: ["market-data-schedule"],
+    queryFn: fetchMarketDataSchedule
+  });
+  const strategiesQuery = useQuery({
+    queryKey: ["strategies"],
+    queryFn: fetchStrategies
+  });
+  const riskSettingsQuery = useQuery({
+    queryKey: ["risk-settings"],
+    queryFn: fetchRiskSettings
+  });
+
+  const selectedSymbol = symbolsQuery.data?.[0]?.symbol ?? "BTCUSDT";
+  const backendTimeframe = scheduleQuery.data?.timeframe ?? "15m";
+  const candlesQuery = useQuery({
+    queryKey: ["candles", selectedSymbol, backendTimeframe],
+    queryFn: () => fetchCandles(selectedSymbol, backendTimeframe, 120),
+    enabled: Boolean(selectedSymbol)
+  });
+
   const syncMutation = useMutation({
     mutationFn: () =>
-      syncMarketData({
-        symbols: ["BTCUSDT", "ETHUSDT"],
-        timeframe,
-        limit: 500,
+      refreshMarketData({
+        symbols: scheduleQuery.data?.symbols ?? ["BTCUSDT", "ETHUSDT"],
+        timeframe: scheduleQuery.data?.timeframe ?? backendTimeframe,
+        limit: scheduleQuery.data?.limit ?? 500,
         regenerate_signals: true
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["signals"] });
+      queryClient.invalidateQueries({ queryKey: ["symbols"] });
+      queryClient.invalidateQueries({ queryKey: ["candles"] });
     }
   });
+
+  const latestCandle = candlesQuery.data?.at(-1);
+  const previousCandle = candlesQuery.data?.at(-2);
+  const priceChangePercent =
+    latestCandle && previousCandle
+      ? ((latestCandle.close - previousCandle.close) / previousCandle.close) * 100
+      : 0;
+  const riskSettings = riskSettingsQuery.data?.[0];
+  const activeStrategy = strategiesQuery.data?.[0];
+  const bestSignal = signals.reduce(
+    (best, signal) => (signal.confidence > (best?.confidence ?? 0) ? signal : best),
+    signals[0]
+  );
+  const confidenceSparkline = signals.length
+    ? signals.map((signal) => Math.round(signal.confidence * 100)).slice(-7)
+    : [12, 18, 16, 22, 20, 26, 24];
+
+  const metrics = [
+    {
+      label: `${selectedSymbol} Last Close`,
+      value: latestCandle ? formatCurrency(latestCandle.close) : "Loading",
+      trend: `${priceChangePercent >= 0 ? "+" : ""}${priceChangePercent.toFixed(2)}% candle`,
+      trendDirection: priceChangePercent > 0 ? ("up" as const) : priceChangePercent < 0 ? ("down" as const) : ("flat" as const),
+      tone: "cyan" as const,
+      icon: CircleDollarSign,
+      sparkline: candlesToSparkline(candlesQuery.data)
+    },
+    {
+      label: "Open Risk",
+      value: riskSettings ? `${(riskSettings.max_risk_per_trade * 100).toFixed(1)}%` : "Loading",
+      trend: riskSettings ? `${riskSettings.max_open_trades} max trades` : "Risk policy",
+      trendDirection: "flat" as const,
+      tone: "emerald" as const,
+      icon: ShieldCheck,
+      sparkline: [30, 26, 25, 22, 24, 20, 19]
+    },
+    {
+      label: "Best Signal",
+      value: bestSignal ? `${Math.round(bestSignal.confidence * 100)}%` : "0%",
+      trend: bestSignal ? `${bestSignal.symbol} ${bestSignal.direction}` : "No active signal",
+      trendDirection: bestSignal?.direction === "sell" ? ("down" as const) : bestSignal?.direction === "buy" ? ("up" as const) : ("flat" as const),
+      tone: "violet" as const,
+      icon: Bot,
+      sparkline: confidenceSparkline
+    },
+    {
+      label: "Market Sync",
+      value: scheduleQuery.data ? `${scheduleQuery.data.interval_minutes}m` : "Loading",
+      trend: scheduleQuery.data ? `${scheduleQuery.data.symbols.length} symbols watched` : "Schedule",
+      trendDirection: "flat" as const,
+      tone: "amber" as const,
+      icon: Target,
+      sparkline: [44, 39, 41, 36, 31, 28, 26]
+    }
+  ];
 
   const tableRows = useMemo(
     () =>
       signals.map((signal) => ({
-        id: signal.symbol,
+        id: `${signal.id ?? signal.symbol}-${signal.created_at ?? signal.timeframe ?? "latest"}`,
         symbol: signal.symbol,
         direction: signal.direction,
         confidence: Math.round(signal.confidence * 100),
-        exposure: signal.direction.toLowerCase().includes("sell") ? "Reduce" : "Build",
-        updated: "Just now"
+        exposure: signal.direction.toLowerCase().includes("sell") ? "Reduce" : signal.direction.toLowerCase().includes("buy") ? "Build" : "Observe",
+        updated: signal.created_at ? formatRelativeTime(signal.created_at) : "Just now",
+        timeframe: signal.timeframe ?? backendTimeframe,
+        reason: signal.reason ?? "Generated by rule engine"
       })),
-    [signals]
+    [backendTimeframe, signals]
   );
 
   return (
@@ -122,7 +173,7 @@ export function DashboardPage() {
               AI trading dashboard
             </h1>
             <p className="mt-2 max-w-2xl text-sm font-medium leading-6 text-slate-600 dark:text-white/55">
-              Monitor model confidence, risk exposure, execution quality, and active signals from one responsive glass control surface.
+              Monitor synced market data, rule-based signals, strategy posture, and risk settings from one responsive glass control surface.
             </p>
           </div>
 
@@ -157,7 +208,7 @@ export function DashboardPage() {
       ) : null}
       {syncMutation.isSuccess ? (
         <Alert tone="success">
-          Synced {syncMutation.data.results.reduce((total, result) => total + result.fetched, 0)} candles from {syncMutation.data.provider}.
+          Refreshed {syncMutation.data.results.reduce((total, result) => total + result.fetched, 0)} candles from {syncMutation.data.provider}; generated {syncMutation.data.generated_signal_count} signals.
         </Alert>
       ) : null}
 
@@ -205,9 +256,13 @@ export function DashboardPage() {
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-lg font-black text-slate-950 dark:text-white">Quick Actions</h2>
-              <p className="text-sm font-medium text-slate-500 dark:text-white/50">Runbook controls</p>
+              <p className="text-sm font-medium text-slate-500 dark:text-white/50">
+                Backend controls for {scheduleQuery.data?.symbols.join(", ") ?? "configured symbols"}
+              </p>
             </div>
-            <Badge tone="success">Online</Badge>
+            <Badge tone={scheduleQuery.isError ? "warning" : "success"}>
+              {scheduleQuery.data ? `${scheduleQuery.data.interval_minutes}m sync` : "Loading"}
+            </Badge>
           </div>
           <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
             {[
@@ -234,7 +289,7 @@ export function DashboardPage() {
               onClick={() => syncMutation.mutate()}
               className="min-h-14 justify-start"
             >
-              Sync market data
+              Refresh backend data
             </Button>
           </div>
         </Card>
@@ -270,7 +325,13 @@ export function DashboardPage() {
               align: "right",
               render: (row) => `${row.confidence}%`
             },
+            { key: "timeframe", label: "Frame" },
             { key: "exposure", label: "Exposure" },
+            {
+              key: "reason",
+              label: "Reason",
+              render: (row) => <span className="line-clamp-1 text-slate-500 dark:text-white/50">{row.reason}</span>
+            },
             { key: "updated", label: "Updated", align: "right" }
           ]}
           rows={tableRows}
@@ -281,16 +342,35 @@ export function DashboardPage() {
         <Card className="p-4 sm:p-5">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-lg font-black text-slate-950 dark:text-white">Activity Timeline</h2>
-              <p className="text-sm font-medium text-slate-500 dark:text-white/50">Recent activity</p>
+              <h2 className="text-lg font-black text-slate-950 dark:text-white">Backend Timeline</h2>
+              <p className="text-sm font-medium text-slate-500 dark:text-white/50">Live integration state</p>
             </div>
             <Clock3 size={18} className="text-slate-400 dark:text-white/40" aria-hidden />
           </div>
           <div className="mt-5 grid gap-4">
             {[
-              { title: "Model retrained", detail: "Signal threshold tightened to 68%", time: "08:42", icon: Bot },
-              { title: "Risk guard passed", detail: "Max drawdown remains below policy", time: "08:31", icon: ShieldCheck },
-              { title: "Backtest completed", detail: "4h strategy produced 1.8 Sharpe", time: "08:12", icon: BarChart3 }
+              {
+                title: "Market data schedule",
+                detail: scheduleQuery.data
+                  ? `${scheduleQuery.data.symbols.join(", ")} every ${scheduleQuery.data.interval_minutes} minutes`
+                  : "Loading scheduler configuration",
+                time: scheduleQuery.data?.timeframe ?? backendTimeframe,
+                icon: Clock3
+              },
+              {
+                title: "Strategy engine",
+                detail: activeStrategy?.description ?? "Loading default strategy",
+                time: activeStrategy?.status ?? "loading",
+                icon: Bot
+              },
+              {
+                title: "Risk policy",
+                detail: riskSettings
+                  ? `${(riskSettings.max_daily_loss * 100).toFixed(1)}% max daily loss, ${(riskSettings.max_symbol_exposure * 100).toFixed(0)}% symbol exposure`
+                  : "Loading risk settings",
+                time: riskSettings?.status ?? "loading",
+                icon: ShieldCheck
+              }
             ].map((item, index) => (
               <motion.div
                 key={item.title}
@@ -319,18 +399,40 @@ export function DashboardPage() {
         <Card className="p-4 sm:p-5 xl:col-span-2">
           <div className="mb-5 flex items-center justify-between">
             <div>
-              <h2 className="text-lg font-black text-slate-950 dark:text-white">Strategy Controls</h2>
-              <p className="text-sm font-medium text-slate-500 dark:text-white/50">Glass form inputs with validation-ready states</p>
+              <h2 className="text-lg font-black text-slate-950 dark:text-white">Backend Strategy Controls</h2>
+              <p className="text-sm font-medium text-slate-500 dark:text-white/50">
+                Current defaults from `/api/strategies` and `/api/risk-settings`
+              </p>
             </div>
             <Calendar size={18} className="text-slate-400 dark:text-white/40" aria-hidden />
           </div>
           <div className="grid gap-4 md:grid-cols-2">
-            <Input label="Strategy name" placeholder="Mean reversion v4" />
-            <Select label="Market universe" options={["Crypto majors", "US equities", "FX liquid pairs"]} />
-            <Input label="Risk limit" placeholder="2.5%" error="Review limit before deployment" />
-            <Select label="Rebalance cadence" options={["15 minutes", "Hourly", "Daily"]} />
+            <Input label="Strategy name" value={activeStrategy?.name ?? ""} readOnly placeholder="Loading strategy" />
+            <Select
+              label="Market universe"
+              options={(symbolsQuery.data?.map((symbol) => symbol.symbol) ?? ["BTCUSDT", "ETHUSDT"])}
+              value={selectedSymbol}
+              disabled
+            />
+            <Input
+              label="Risk per trade"
+              value={riskSettings ? `${(riskSettings.max_risk_per_trade * 100).toFixed(1)}%` : ""}
+              readOnly
+              placeholder="Loading risk"
+            />
+            <Select
+              label="Refresh cadence"
+              options={[scheduleQuery.data ? `${scheduleQuery.data.interval_minutes} minutes` : "Loading"]}
+              value={scheduleQuery.data ? `${scheduleQuery.data.interval_minutes} minutes` : "Loading"}
+              disabled
+            />
             <div className="md:col-span-2">
-              <Textarea label="Research note" placeholder="Document thesis, invalidation level, and execution guardrails" />
+              <Textarea
+                label="Strategy description"
+                value={activeStrategy?.description ?? ""}
+                readOnly
+                placeholder="Loading strategy description"
+              />
             </div>
             <ToggleSwitch label="Auto-pause on anomaly" checked />
             <ToggleSwitch label="Send executive digest" />
@@ -343,17 +445,17 @@ export function DashboardPage() {
         <Card className="p-4 sm:p-5">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-lg font-black text-slate-950 dark:text-white">Summary</h2>
-              <p className="text-sm font-medium text-slate-500 dark:text-white/50">Operational posture</p>
+              <h2 className="text-lg font-black text-slate-950 dark:text-white">Backend Summary</h2>
+              <p className="text-sm font-medium text-slate-500 dark:text-white/50">Resource posture</p>
             </div>
             <Activity size={18} className="text-slate-400 dark:text-white/40" aria-hidden />
           </div>
           <div className="mt-5 grid gap-3">
             {[
-              ["Data quality", "98.4%", "bg-emerald-400/15 text-emerald-700 dark:text-emerald-100"],
-              ["Fill efficiency", "94.1%", "bg-cyan-400/15 text-cyan-700 dark:text-cyan-100"],
-              ["Alert load", "Normal", "bg-violet-400/15 text-violet-700 dark:text-violet-100"],
-              ["Drawdown", "1.2%", "bg-amber-400/15 text-amber-700 dark:text-amber-100"]
+              ["Symbols", `${symbolsQuery.data?.length ?? 0}`, "bg-emerald-400/15 text-emerald-700 dark:text-emerald-100"],
+              ["Candles", `${candlesQuery.data?.length ?? 0}`, "bg-cyan-400/15 text-cyan-700 dark:text-cyan-100"],
+              ["Strategies", `${strategiesQuery.data?.length ?? 0}`, "bg-violet-400/15 text-violet-700 dark:text-violet-100"],
+              ["Max daily loss", riskSettings ? `${(riskSettings.max_daily_loss * 100).toFixed(1)}%` : "Loading", "bg-amber-400/15 text-amber-700 dark:text-amber-100"]
             ].map(([label, value, tone]) => (
               <div
                 key={label}
@@ -401,4 +503,44 @@ export function DashboardPage() {
       </Modal>
     </div>
   );
+}
+
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: value > 1000 ? 0 : 2
+  }).format(value);
+}
+
+function candlesToSparkline(candles?: Array<{ close: number }>) {
+  if (!candles?.length) {
+    return [16, 24, 19, 34, 31, 44, 38];
+  }
+
+  return candles.slice(-7).map((candle) => candle.close);
+}
+
+function formatRelativeTime(value: string) {
+  const timestamp = new Date(value).getTime();
+  if (Number.isNaN(timestamp)) {
+    return "Just now";
+  }
+
+  const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+  if (seconds < 60) {
+    return `${seconds}s ago`;
+  }
+
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) {
+    return `${minutes}m ago`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return `${hours}h ago`;
+  }
+
+  return `${Math.floor(hours / 24)}d ago`;
 }
