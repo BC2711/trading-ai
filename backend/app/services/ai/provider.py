@@ -4,10 +4,12 @@ from typing import Protocol
 import httpx
 
 try:
-    from llama_cpp import Llama
+    from llama_cpp import Llama, LlamaGrammar
 except ImportError:
     Llama = None
+    LlamaGrammar = None
 
+import logging
 from app.core.config import settings
 from app.models import BacktestRun, MarketCandle, RiskSetting, Signal, Strategy
 from app.schemas.trading import AIAnalysisRequest
@@ -15,19 +17,36 @@ from app.services.indicators.technical import indicator_snapshot
 from app.services.signals import build_signal_from_candles
 
 
+logger = logging.getLogger(__name__)
 _LOCAL_MODEL_INSTANCE = None
 
 
-def get_local_llama_instance():
+def get_local_llama_instance() -> Llama | None:
+    """
+    Lazy-loader for the local LLM. 
+    Ensures the heavy model file is only loaded into RAM once.
+    """
     global _LOCAL_MODEL_INSTANCE
     if _LOCAL_MODEL_INSTANCE is None:
         if Llama is None or not settings.local_model_path:
+            logger.warning("Local Llama requested but llama-cpp-python is not installed or LOCAL_MODEL_PATH is unset.")
             return None
-        _LOCAL_MODEL_INSTANCE = Llama(
-            model_path=settings.local_model_path,
-            n_ctx=2048,
-            verbose=False
-        )
+        
+        try:
+            logger.info(f"Loading local LLM from {settings.local_model_path}...")
+            _LOCAL_MODEL_INSTANCE = Llama(
+                model_path=settings.local_model_path,
+                n_ctx=2048,
+                n_threads=settings.market_sync_interval_minutes, # Heuristic for CPU threads
+                verbose=False,
+                # Use GPU if available (requires llama-cpp-python with CUDA/Metal support)
+                n_gpu_layers=-1 if "cuda" in (settings.database_url or "") else 0 
+            )
+            logger.info("Local LLM loaded successfully.")
+        except Exception as e:
+            logger.error(f"Failed to load local LLM: {e}")
+            return None
+            
     return _LOCAL_MODEL_INSTANCE
 
 
@@ -380,10 +399,23 @@ class OllamaProvider(OpenAIProvider):
 
 class LocalLlamaProvider(OpenAIProvider):
     """
-    Provider for local LLMs via llama-cpp-python. 
-    Requires a local GGUF model file and the llama-cpp-python package.
+    Advanced Provider for local LLMs using llama-cpp-python.
+    Uses GBNF (Grammar-Based Next Token Selection) to force valid JSON output.
     """
     provider_name = "local-llama"
+
+    # GBNF Grammar to force the LLM to strictly output the AIAnalysisResult JSON format
+    JSON_GRAMMAR = r"""
+    root   ::= object
+    object ::= "{" space items "}"
+    items  ::= pair ( "," space pair )*
+    pair   ::= string ":" space value
+    string ::= "\"" [^\"\\\n]* "\""
+    value  ::= string | number | array | object | "true" | "false" | "null"
+    number ::= [0-9]+ ("." [0-9]+)?
+    array  ::= "[" space (value ( "," space value )*)? space "]"
+    space  ::= [ \t\n\r]*
+    """
 
     def analyze(
         self,
@@ -396,22 +428,23 @@ class LocalLlamaProvider(OpenAIProvider):
     ) -> AIAnalysisResult:
         llm = get_local_llama_instance()
         if not llm:
-            # Fallback to rules if the model file is missing or library not installed
-            return super(OpenAIProvider, self).analyze(payload, signal, candles, strategy, risk_settings, latest_backtest)
+            return self._fallback(payload, signal, candles, strategy, risk_settings, latest_backtest)
 
+        # Gather context
         snapshot = indicator_snapshot(
             closes=[candle.close for candle in candles],
             highs=[candle.high for candle in candles],
             lows=[candle.low for candle in candles],
         )
         derived_signal = build_signal_from_candles(candles)
-
         direction = signal.direction if signal else str(derived_signal["direction"])
         confidence = signal.confidence if signal else float(derived_signal["confidence"])
         reason = signal.reason if signal else str(derived_signal["reason"])
         backtest_summary = latest_backtest.summary if latest_backtest else None
 
-        prompt = self._build_prompt(
+        # Build prompt with explicit instruction formatting
+        system_prompt = "You are a specialized financial analyst bot. You only output valid JSON."
+        user_prompt = self._build_prompt(
             symbol=signal.symbol_ref.symbol if signal else payload.symbol.upper(),
             timeframe=signal.timeframe if signal else payload.timeframe,
             direction=direction,
@@ -423,16 +456,36 @@ class LocalLlamaProvider(OpenAIProvider):
             backtest_summary=backtest_summary,
         )
 
+        # Format for instruction models (ChatML style)
+        full_prompt = f"<|im_start|>system\n{system_prompt}<|im_end|>\n<|im_start|>user\n{user_prompt}<|im_end|>\n<|im_start|>assistant\n"
+
         try:
+            grammar = LlamaGrammar.from_string(self.JSON_GRAMMAR) if LlamaGrammar else None
             output = llm(
-                f"Instruction: {prompt}\nResponse: ",
+                full_prompt,
                 max_tokens=600,
-                stop=["Instruction:", "Q:"],
-                echo=False
+                stop=["<|im_end|>", "User:"],
+                echo=False,
+                grammar=grammar,
+                temperature=0.1 # Low temperature for analytical consistency
             )
-            content = output["choices"][0]["text"]
+            
+            content = output["choices"][0]["text"].strip()
             parsed = self._parse_analysis(content)
             
+            # Ensure indicators map contains numeric values as expected by the schema
+            formatted_indicators = {}
+            for k, v in parsed.get("indicators", {}).items():
+                try:
+                    formatted_indicators[k] = float(v)
+                except (ValueError, TypeError):
+                    formatted_indicators[k] = snapshot.get(k, 0.0)
+
+            # Merge with existing snapshot keys to ensure all required data is present
+            for k, v in snapshot.items():
+                if k not in formatted_indicators:
+                    formatted_indicators[k] = float(v)
+
             return AIAnalysisResult(
                 provider=self.provider_name,
                 symbol=signal.symbol_ref.symbol if signal else payload.symbol.upper(),
@@ -443,11 +496,16 @@ class LocalLlamaProvider(OpenAIProvider):
                 reasoning=parsed["reasoning"],
                 risk_notes=parsed["risk_notes"],
                 suggested_action=parsed["suggested_action"],
-                indicators={key: float(parsed["indicators"][key]) for key in parsed["indicators"]},
+                indicators=formatted_indicators,
                 backtest_summary=backtest_summary,
             )
-        except Exception:
-            return super(OpenAIProvider, self).analyze(payload, signal, candles, strategy, risk_settings, latest_backtest)
+        except Exception as e:
+            logger.error(f"Local Llama analysis failed: {e}")
+            return self._fallback(payload, signal, candles, strategy, risk_settings, latest_backtest)
+
+    def _fallback(self, payload, signal, candles, strategy, risk_settings, latest_backtest):
+        """Explicitly call the rule-based fallback when local LLM fails."""
+        return RuleBasedAIProvider().analyze(payload, signal, candles, strategy, risk_settings, latest_backtest)
 
 
 def get_ai_provider() -> AIProvider:

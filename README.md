@@ -63,6 +63,31 @@ npm run dev
 
 The backend supports a rule-based AI provider by default. Set `AI_PROVIDER=openai` and provide `OPENAI_API_KEY` to enable OpenAI-based analysis.
 
+### Local LLM (llama-cpp)
+
+You can run a local LLM using `llama-cpp-python` and a GGUF/ggml model file. Steps:
+
+1. Install `llama-cpp-python` in the backend environment:
+
+```bash
+pip install llama-cpp-python
+```
+
+2. Download a compatible GGUF/ggml model and place it on the host, for example `/models/llama2.gguf`.
+
+3. Configure the backend to point at the model by setting `LOCAL_MODEL_PATH` in your `.env` or Docker configuration:
+
+```
+LOCAL_MODEL_PATH=/models/llama2.gguf
+AI_PROVIDER=local-llama
+```
+
+4. Restart the backend (or Docker compose) and the `/api/ai/analyze-signal` endpoint will attempt to use the local model. If the model or library is missing the service will fall back to the rule-based provider.
+
+Notes:
+- Running local LLMs requires significant CPU/RAM; consider GPU or quantized models for performance.
+- For Ollama users, configure `OLLAMA_BASE_URL` and `OLLAMA_MODEL` and set `AI_PROVIDER=ollama`.
+
 ## Stack
 
 Backend: Python, FastAPI, SQLAlchemy, Alembic, PostgreSQL, Redis, Celery, APScheduler, Pandas, NumPy, Scikit-learn, XGBoost, pandas-ta, Sentry, Prometheus metrics.

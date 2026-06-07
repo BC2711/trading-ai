@@ -242,10 +242,18 @@ def get_ai_analyses(
 
 @router.get("/ai/provider", response_model=AIProviderStatusResponse, tags=["ai"])
 def get_ai_provider_status() -> AIProviderStatusResponse:
+    available = ["rules"]
+    if settings.openai_api_key:
+        available.append("openai")
+    if settings.ollama_base_url:
+        available.append("ollama")
+    if settings.local_model_path:
+        available.append("local-llama")
+
     return AIProviderStatusResponse(
         provider=settings.ai_provider,
         openai_available=bool(settings.openai_api_key),
-        available_providers=["rules", "openai", "ollama", "local-llama"],
+        available_providers=available,
     )
 
 
