@@ -198,9 +198,11 @@ export type PaperPosition = {
   avg_entry_price: number;
   mark_price: number;
   unrealized_pnl: number;
+  realized_pnl: number;
   status: string;
   created_at: string;
   updated_at: string;
+  closed_at: string | null;
 };
 
 export async function fetchSymbols(): Promise<SymbolResource[]> {
@@ -291,7 +293,17 @@ export async function createPaperOrder(payload: PaperOrderRequest): Promise<Pape
   return response.data;
 }
 
+export async function cancelOrder(id: number): Promise<PaperOrder> {
+  const response = await apiClient.post<PaperOrder>(`/api/orders/${id}/cancel`);
+  return response.data;
+}
+
 export async function fetchPositions(): Promise<PaperPosition[]> {
   const response = await apiClient.get<PaperPosition[]>("/api/positions");
+  return response.data;
+}
+
+export async function closePosition(id: number): Promise<PaperPosition> {
+  const response = await apiClient.post<PaperPosition>(`/api/positions/${id}/close`);
   return response.data;
 }

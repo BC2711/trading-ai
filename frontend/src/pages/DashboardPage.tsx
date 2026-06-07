@@ -34,6 +34,7 @@ import { StatCard } from "../components/ui/StatCard";
 import { Textarea } from "../components/ui/Textarea";
 import {
   analyzeSignal,
+  closePosition,
   createPaperOrder,
   fetchBacktests,
   fetchAIAnalyses,
@@ -240,6 +241,13 @@ export function DashboardPage() {
       queryClient.invalidateQueries({ queryKey: ["positions"] });
     }
   });
+  const closePositionMutation = useMutation({
+    mutationFn: closePosition,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      queryClient.invalidateQueries({ queryKey: ["positions"] });
+    }
+  });
 
   const metrics = [
     {
@@ -371,6 +379,14 @@ export function DashboardPage() {
       {paperOrderMutation.isSuccess ? (
         <Alert tone={paperOrderMutation.data.status === "filled" ? "success" : "warning"}>
           Paper order {paperOrderMutation.data.status}: {paperOrderMutation.data.risk_message}
+        </Alert>
+      ) : null}
+      {closePositionMutation.isError ? (
+        <Alert tone="error">Unable to close paper position. Refresh positions and try again.</Alert>
+      ) : null}
+      {closePositionMutation.isSuccess ? (
+        <Alert tone="success">
+          Closed {closePositionMutation.data.symbol} {closePositionMutation.data.side} with realized PnL {formatCurrency(closePositionMutation.data.realized_pnl)}.
         </Alert>
       ) : null}
 
@@ -738,6 +754,19 @@ export function DashboardPage() {
                     <p className="mt-1 text-xs font-medium text-slate-500 dark:text-white/50">
                       {position.quantity.toFixed(6)} @ {formatCurrency(position.avg_entry_price)}
                     </p>
+                    <div className="mt-3 flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold text-slate-500 dark:text-white/45">
+                        Mark {formatCurrency(position.mark_price)}
+                      </span>
+                      <Button
+                        variant="outline"
+                        className="min-h-8 px-3 py-1 text-xs"
+                        loading={closePositionMutation.isPending && closePositionMutation.variables === position.id}
+                        onClick={() => closePositionMutation.mutate(position.id)}
+                      >
+                        Close
+                      </Button>
+                    </div>
                   </div>
                 ))}
                 {ordersQuery.data?.slice(0, 2).map((order) => (

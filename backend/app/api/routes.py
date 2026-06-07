@@ -44,6 +44,8 @@ from app.services.market_data.sync import sync_market_data
 from app.services.ai.advisor import analyze_signal, analysis_to_response, get_ai_analysis, list_ai_analyses
 from app.services.backtesting.engine import list_backtest_runs, run_backtest
 from app.services.execution.paper import (
+    cancel_paper_order,
+    close_paper_position,
     create_paper_order,
     list_paper_orders,
     list_paper_positions,
@@ -262,9 +264,41 @@ def post_paper_order(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.post("/orders/{order_id}/cancel", response_model=PaperOrderRead, tags=["paper-trading"])
+def post_cancel_order(
+    order_id: int,
+    db: Session = Depends(get_db),
+) -> PaperOrderRead:
+    try:
+        order = cancel_paper_order(db, order_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if order is None:
+        raise HTTPException(status_code=404, detail="Paper order not found")
+
+    return order_to_schema(order)
+
+
 @router.get("/positions", response_model=list[PaperPositionRead], tags=["paper-trading"])
 def get_positions(db: Session = Depends(get_db)) -> list[PaperPositionRead]:
     return [position_to_schema(position) for position in list_paper_positions(db)]
+
+
+@router.post("/positions/{position_id}/close", response_model=PaperPositionRead, tags=["paper-trading"])
+def post_close_position(
+    position_id: int,
+    db: Session = Depends(get_db),
+) -> PaperPositionRead:
+    try:
+        position = close_paper_position(db, position_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if position is None:
+        raise HTTPException(status_code=404, detail="Paper position not found")
+
+    return position_to_schema(position)
 
 
 @router.get("/indicators/preview", tags=["indicators"])

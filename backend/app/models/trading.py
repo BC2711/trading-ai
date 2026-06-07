@@ -164,9 +164,6 @@ class PaperOrder(Base):
 
 class PaperPosition(Base):
     __tablename__ = "paper_positions"
-    __table_args__ = (
-        UniqueConstraint("symbol_id", "side", "status", name="uq_paper_position_symbol_side_status"),
-    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     symbol_id: Mapped[int] = mapped_column(ForeignKey("symbols.id", ondelete="CASCADE"), index=True)
@@ -175,8 +172,10 @@ class PaperPosition(Base):
     avg_entry_price: Mapped[float] = mapped_column(Float)
     mark_price: Mapped[float] = mapped_column(Float)
     unrealized_pnl: Mapped[float] = mapped_column(Float, default=0.0)
+    realized_pnl: Mapped[float] = mapped_column(Float, default=0.0)
     status: Mapped[str] = mapped_column(String(16), default="open", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     symbol_ref: Mapped[Symbol] = relationship(back_populates="positions")

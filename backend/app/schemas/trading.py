@@ -236,6 +236,8 @@ class PaperPositionRead(BaseModel):
     avg_entry_price: float
     mark_price: float
     unrealized_pnl: float
+    realized_pnl: float
     status: str
     created_at: datetime
     updated_at: datetime
+    closed_at: datetime | None

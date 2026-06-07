@@ -71,6 +71,60 @@ def list_paper_positions(db: Session) -> list[PaperPosition]:
     return positions
 
 
+def cancel_paper_order(db: Session, order_id: int) -> PaperOrder | None:
+    order = db.get(PaperOrder, order_id)
+    if order is None:
+        return None
+
+    if order.status == "filled":
+        raise ValueError("Filled paper orders cannot be cancelled")
+
+    order.status = "cancelled"
+    order.risk_message = "Paper order cancelled by operator."
+    db.commit()
+    db.refresh(order)
+    return order
+
+
+def close_paper_position(db: Session, position_id: int) -> PaperPosition | None:
+    position = db.get(PaperPosition, position_id)
+    if position is None:
+        return None
+    if position.status != "open":
+        raise ValueError("Only open paper positions can be closed")
+
+    latest_price = get_latest_price(db, position.symbol_ref.symbol)
+    if latest_price is None:
+        raise ValueError(f"No market price is available for {position.symbol_ref.symbol}")
+
+    now = utc_now()
+    update_mark_to_market(position, latest_price)
+    position.realized_pnl = position.unrealized_pnl
+    position.unrealized_pnl = 0.0
+    position.status = "closed"
+    position.closed_at = now
+    position.updated_at = now
+
+    close_side = "sell" if position.side == "long" else "buy"
+    db.add(
+        PaperOrder(
+            symbol_id=position.symbol_id,
+            side=close_side,
+            order_type="market",
+            quantity=position.quantity,
+            requested_price=round(latest_price, 8),
+            fill_price=round(latest_price, 8),
+            status="filled",
+            risk_status="approved",
+            risk_message=f"Closed {position.side} paper position with realized PnL {position.realized_pnl:.2f}.",
+            filled_at=now,
+        )
+    )
+    db.commit()
+    db.refresh(position)
+    return position
+
+
 def resolve_order_side(db: Session, payload: PaperOrderRequest) -> str:
     if payload.side:
         return payload.side
@@ -136,6 +190,7 @@ def upsert_position(db: Session, symbol_id: int, order_side: str, quantity: floa
                 avg_entry_price=round(price, 8),
                 mark_price=round(price, 8),
                 unrealized_pnl=0.0,
+                realized_pnl=0.0,
                 status="open",
                 updated_at=timestamp,
             )
@@ -187,7 +242,9 @@ def position_to_schema(position: PaperPosition) -> PaperPositionRead:
         avg_entry_price=position.avg_entry_price,
         mark_price=position.mark_price,
         unrealized_pnl=position.unrealized_pnl,
+        realized_pnl=position.realized_pnl,
         status=position.status,
         created_at=position.created_at,
         updated_at=position.updated_at,
+        closed_at=position.closed_at,
     )
