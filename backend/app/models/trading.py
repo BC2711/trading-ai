@@ -24,6 +24,8 @@ class Symbol(Base):
 
     candles: Mapped[list["MarketCandle"]] = relationship(back_populates="symbol_ref")
     signals: Mapped[list["Signal"]] = relationship(back_populates="symbol_ref")
+    orders: Mapped[list["PaperOrder"]] = relationship(back_populates="symbol_ref")
+    positions: Mapped[list["PaperPosition"]] = relationship(back_populates="symbol_ref")
 
 
 class MarketCandle(Base):
@@ -89,6 +91,7 @@ class Signal(Base):
     symbol_ref: Mapped[Symbol] = relationship(back_populates="signals")
     strategy_ref: Mapped[Strategy | None] = relationship(back_populates="signals")
     ai_analyses: Mapped[list["AIAnalysisRecord"]] = relationship(back_populates="signal_ref")
+    paper_orders: Mapped[list["PaperOrder"]] = relationship(back_populates="signal_ref")
 
 
 class BacktestRun(Base):
@@ -133,3 +136,47 @@ class AIAnalysisRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
 
     signal_ref: Mapped[Signal | None] = relationship(back_populates="ai_analyses")
+    paper_orders: Mapped[list["PaperOrder"]] = relationship(back_populates="ai_analysis_ref")
+
+
+class PaperOrder(Base):
+    __tablename__ = "paper_orders"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    symbol_id: Mapped[int] = mapped_column(ForeignKey("symbols.id", ondelete="CASCADE"), index=True)
+    signal_id: Mapped[int | None] = mapped_column(ForeignKey("signals.id", ondelete="SET NULL"), nullable=True, index=True)
+    ai_analysis_id: Mapped[int | None] = mapped_column(ForeignKey("ai_analyses.id", ondelete="SET NULL"), nullable=True, index=True)
+    side: Mapped[str] = mapped_column(String(12), index=True)
+    order_type: Mapped[str] = mapped_column(String(16), default="market")
+    quantity: Mapped[float] = mapped_column(Float)
+    requested_price: Mapped[float] = mapped_column(Float)
+    fill_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="filled", index=True)
+    risk_status: Mapped[str] = mapped_column(String(16), default="approved")
+    risk_message: Mapped[str] = mapped_column(String(500), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+    filled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    symbol_ref: Mapped[Symbol] = relationship(back_populates="orders")
+    signal_ref: Mapped[Signal | None] = relationship(back_populates="paper_orders")
+    ai_analysis_ref: Mapped[AIAnalysisRecord | None] = relationship(back_populates="paper_orders")
+
+
+class PaperPosition(Base):
+    __tablename__ = "paper_positions"
+    __table_args__ = (
+        UniqueConstraint("symbol_id", "side", "status", name="uq_paper_position_symbol_side_status"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    symbol_id: Mapped[int] = mapped_column(ForeignKey("symbols.id", ondelete="CASCADE"), index=True)
+    side: Mapped[str] = mapped_column(String(12), index=True)
+    quantity: Mapped[float] = mapped_column(Float)
+    avg_entry_price: Mapped[float] = mapped_column(Float)
+    mark_price: Mapped[float] = mapped_column(Float)
+    unrealized_pnl: Mapped[float] = mapped_column(Float, default=0.0)
+    status: Mapped[str] = mapped_column(String(16), default="open", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    symbol_ref: Mapped[Symbol] = relationship(back_populates="positions")

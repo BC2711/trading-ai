@@ -164,6 +164,45 @@ export type AIAnalysis = {
   generated_at: string;
 };
 
+export type PaperOrderRequest = {
+  symbol: string;
+  side?: "buy" | "sell";
+  order_type?: "market";
+  quantity?: number;
+  signal_id?: number | null;
+  ai_analysis_id?: number | null;
+};
+
+export type PaperOrder = {
+  id: number;
+  symbol: string;
+  side: string;
+  order_type: string;
+  quantity: number;
+  requested_price: number;
+  fill_price: number | null;
+  status: string;
+  risk_status: string;
+  risk_message: string;
+  signal_id: number | null;
+  ai_analysis_id: number | null;
+  created_at: string;
+  filled_at: string | null;
+};
+
+export type PaperPosition = {
+  id: number;
+  symbol: string;
+  side: string;
+  quantity: number;
+  avg_entry_price: number;
+  mark_price: number;
+  unrealized_pnl: number;
+  status: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export async function fetchSymbols(): Promise<SymbolResource[]> {
   const response = await apiClient.get<SymbolResource[]>("/api/symbols");
   return response.data;
@@ -237,5 +276,22 @@ export async function fetchAIAnalyses(limit = 5): Promise<AIAnalysis[]> {
 
 export async function fetchAIAnalysis(id: number): Promise<AIAnalysis> {
   const response = await apiClient.get<AIAnalysis>(`/api/ai/analyses/${id}`);
+  return response.data;
+}
+
+export async function fetchOrders(limit = 20): Promise<PaperOrder[]> {
+  const response = await apiClient.get<PaperOrder[]>("/api/orders", {
+    params: { limit }
+  });
+  return response.data;
+}
+
+export async function createPaperOrder(payload: PaperOrderRequest): Promise<PaperOrder> {
+  const response = await apiClient.post<PaperOrder>("/api/orders/paper", payload);
+  return response.data;
+}
+
+export async function fetchPositions(): Promise<PaperPosition[]> {
+  const response = await apiClient.get<PaperPosition[]>("/api/positions");
   return response.data;
 }

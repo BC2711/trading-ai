@@ -15,6 +15,9 @@ from app.schemas.trading import (
     MarketDataSyncRequest,
     MarketDataSyncResponse,
     MarketDataTaskResponse,
+    PaperOrderRead,
+    PaperOrderRequest,
+    PaperPositionRead,
     RiskSettingRead,
     RiskSettingUpdate,
     SignalGenerateRequest,
@@ -40,6 +43,13 @@ from app.services.market_data.jobs import run_market_data_refresh
 from app.services.market_data.sync import sync_market_data
 from app.services.ai.advisor import analyze_signal, analysis_to_response, get_ai_analysis, list_ai_analyses
 from app.services.backtesting.engine import list_backtest_runs, run_backtest
+from app.services.execution.paper import (
+    create_paper_order,
+    list_paper_orders,
+    list_paper_positions,
+    order_to_schema,
+    position_to_schema,
+)
 from app.services.signals import generate_signals, list_signals
 from app.workers.tasks import refresh_market_data
 
@@ -231,6 +241,30 @@ def get_ai_analysis_by_id(
         raise HTTPException(status_code=404, detail="AI analysis not found")
 
     return analysis_to_response(record)
+
+
+@router.get("/orders", response_model=list[PaperOrderRead], tags=["paper-trading"])
+def get_orders(
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> list[PaperOrderRead]:
+    return [order_to_schema(order) for order in list_paper_orders(db, limit)]
+
+
+@router.post("/orders/paper", response_model=PaperOrderRead, tags=["paper-trading"])
+def post_paper_order(
+    payload: PaperOrderRequest,
+    db: Session = Depends(get_db),
+) -> PaperOrderRead:
+    try:
+        return order_to_schema(create_paper_order(db, payload))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/positions", response_model=list[PaperPositionRead], tags=["paper-trading"])
+def get_positions(db: Session = Depends(get_db)) -> list[PaperPositionRead]:
+    return [position_to_schema(position) for position in list_paper_positions(db)]
 
 
 @router.get("/indicators/preview", tags=["indicators"])

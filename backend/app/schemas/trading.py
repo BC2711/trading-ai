@@ -200,3 +200,42 @@ class AIAnalysisResponse(BaseModel):
     indicators: dict[str, float]
     backtest_summary: str | None = None
     generated_at: datetime
+
+
+class PaperOrderRequest(BaseModel):
+    symbol: str = "BTCUSDT"
+    side: str | None = Field(default=None, pattern="^(buy|sell)$")
+    order_type: str = Field(default="market", pattern="^market$")
+    quantity: float | None = Field(default=None, gt=0)
+    signal_id: int | None = None
+    ai_analysis_id: int | None = None
+
+
+class PaperOrderRead(BaseModel):
+    id: int
+    symbol: str
+    side: str
+    order_type: str
+    quantity: float
+    requested_price: float
+    fill_price: float | None
+    status: str
+    risk_status: str
+    risk_message: str
+    signal_id: int | None
+    ai_analysis_id: int | None
+    created_at: datetime
+    filled_at: datetime | None
+
+
+class PaperPositionRead(BaseModel):
+    id: int
+    symbol: str
+    side: str
+    quantity: float
+    avg_entry_price: float
+    mark_price: float
+    unrealized_pnl: float
+    status: str
+    created_at: datetime
+    updated_at: datetime

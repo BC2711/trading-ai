@@ -34,10 +34,13 @@ import { StatCard } from "../components/ui/StatCard";
 import { Textarea } from "../components/ui/Textarea";
 import {
   analyzeSignal,
+  createPaperOrder,
   fetchBacktests,
   fetchAIAnalyses,
   fetchCandles,
   fetchMarketDataSchedule,
+  fetchOrders,
+  fetchPositions,
   fetchRiskSettings,
   fetchStrategies,
   fetchSymbols,
@@ -94,6 +97,14 @@ export function DashboardPage() {
   const aiAnalysesQuery = useQuery({
     queryKey: ["ai-analyses"],
     queryFn: () => fetchAIAnalyses(5)
+  });
+  const ordersQuery = useQuery({
+    queryKey: ["orders"],
+    queryFn: () => fetchOrders(8)
+  });
+  const positionsQuery = useQuery({
+    queryKey: ["positions"],
+    queryFn: fetchPositions
   });
 
   const selectedSymbol = symbolsQuery.data?.[0]?.symbol ?? "BTCUSDT";
@@ -210,6 +221,25 @@ export function DashboardPage() {
     }
   });
   const activeAnalysis = selectedAnalysis ?? analysisMutation.data;
+  const paperOrderMutation = useMutation({
+    mutationFn: () => {
+      if (!activeAnalysis) {
+        throw new Error("AI analysis is required before creating a paper order");
+      }
+
+      return createPaperOrder({
+        symbol: activeAnalysis.symbol,
+        side: activeAnalysis.direction === "buy" || activeAnalysis.direction === "sell" ? activeAnalysis.direction : undefined,
+        order_type: "market",
+        signal_id: activeAnalysis.signal_id,
+        ai_analysis_id: activeAnalysis.id
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      queryClient.invalidateQueries({ queryKey: ["positions"] });
+    }
+  });
 
   const metrics = [
     {
@@ -334,6 +364,14 @@ export function DashboardPage() {
       {settingsMutation.isSuccess ? <Alert tone="success">Strategy and risk settings saved.</Alert> : null}
       {analysisMutation.isError ? (
         <Alert tone="warning">Unable to explain this signal. Refresh market data and try again.</Alert>
+      ) : null}
+      {paperOrderMutation.isError ? (
+        <Alert tone="error">Unable to create paper order. Check the linked AI analysis and current risk limits.</Alert>
+      ) : null}
+      {paperOrderMutation.isSuccess ? (
+        <Alert tone={paperOrderMutation.data.status === "filled" ? "success" : "warning"}>
+          Paper order {paperOrderMutation.data.status}: {paperOrderMutation.data.risk_message}
+        </Alert>
       ) : null}
 
       <motion.section
@@ -505,6 +543,12 @@ export function DashboardPage() {
                 icon: Sparkles
               },
               {
+                title: "Paper trading",
+                detail: `${positionsQuery.data?.length ?? 0} open positions, ${ordersQuery.data?.length ?? 0} recent orders`,
+                time: ordersQuery.data?.[0] ? formatRelativeTime(ordersQuery.data[0].created_at) : "ready",
+                icon: Target
+              },
+              {
                 title: "Latest backtest",
                 detail: latestBacktest
                   ? `${formatPercent(latestBacktest.total_return)} return, ${formatPercent(latestBacktest.win_rate)} win rate, ${latestBacktest.trades_count} trades`
@@ -619,6 +663,8 @@ export function DashboardPage() {
               ["Candles", `${candlesQuery.data?.length ?? 0}`, "bg-cyan-400/15 text-cyan-700 dark:text-cyan-100"],
               ["Strategies", `${strategiesQuery.data?.length ?? 0}`, "bg-violet-400/15 text-violet-700 dark:text-violet-100"],
               ["AI analyses", `${aiAnalysesQuery.data?.length ?? 0}`, "bg-violet-400/15 text-violet-700 dark:text-violet-100"],
+              ["Paper orders", `${ordersQuery.data?.length ?? 0}`, "bg-cyan-400/15 text-cyan-700 dark:text-cyan-100"],
+              ["Open positions", `${positionsQuery.data?.length ?? 0}`, "bg-emerald-400/15 text-emerald-700 dark:text-emerald-100"],
               ["Backtest return", latestBacktest ? formatPercent(latestBacktest.total_return) : "Not run", "bg-emerald-400/15 text-emerald-700 dark:text-emerald-100"],
               ["Max drawdown", latestBacktest ? formatPercent(latestBacktest.max_drawdown) : "Not run", "bg-rose-400/15 text-rose-700 dark:text-rose-100"],
               ["Max daily loss", riskSettings ? `${(riskSettings.max_daily_loss * 100).toFixed(1)}%` : "Loading", "bg-amber-400/15 text-amber-700 dark:text-amber-100"]
@@ -662,6 +708,51 @@ export function DashboardPage() {
                       {analysis.suggested_action}
                     </p>
                   </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {ordersQuery.data?.length || positionsQuery.data?.length ? (
+            <div className="mt-5 border-t border-white/10 pt-4">
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-sm font-black text-slate-950 dark:text-white">Paper Trading</h3>
+                <Badge tone={positionsQuery.data?.length ? "success" : "neutral"}>
+                  {positionsQuery.data?.length ?? 0} open
+                </Badge>
+              </div>
+              <div className="grid gap-2">
+                {positionsQuery.data?.slice(0, 2).map((position) => (
+                  <div
+                    key={position.id}
+                    className="rounded-[8px] border border-white/10 bg-white/10 p-3 backdrop-blur-md dark:bg-white/5"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm font-black text-slate-900 dark:text-white">
+                        {position.symbol} {position.side.toUpperCase()}
+                      </span>
+                      <span className={cn("text-xs font-bold", position.unrealized_pnl >= 0 ? "text-emerald-600 dark:text-emerald-300" : "text-rose-600 dark:text-rose-300")}>
+                        {formatCurrency(position.unrealized_pnl)}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs font-medium text-slate-500 dark:text-white/50">
+                      {position.quantity.toFixed(6)} @ {formatCurrency(position.avg_entry_price)}
+                    </p>
+                  </div>
+                ))}
+                {ordersQuery.data?.slice(0, 2).map((order) => (
+                  <div
+                    key={order.id}
+                    className="flex items-center justify-between rounded-[8px] border border-white/10 bg-white/10 p-3 backdrop-blur-md dark:bg-white/5"
+                  >
+                    <div>
+                      <p className="text-sm font-black text-slate-900 dark:text-white">
+                        {order.symbol} {order.side.toUpperCase()}
+                      </p>
+                      <p className="text-xs font-medium text-slate-500 dark:text-white/50">{order.risk_message}</p>
+                    </div>
+                    <Badge tone={order.status === "filled" ? "success" : "warning"}>{order.status}</Badge>
+                  </div>
                 ))}
               </div>
             </div>
@@ -769,9 +860,19 @@ export function DashboardPage() {
         onClose={() => setAnalysisOpen(false)}
         title={activeAnalysis ? `${activeAnalysis.symbol} AI Signal Analysis` : "AI Signal Analysis"}
         footer={
-          <Button variant="ghost" onClick={() => setAnalysisOpen(false)}>
-            Close
-          </Button>
+          <>
+            <Button variant="ghost" onClick={() => setAnalysisOpen(false)}>
+              Close
+            </Button>
+            <Button
+              icon={Target}
+              loading={paperOrderMutation.isPending}
+              disabled={!activeAnalysis || !["buy", "sell"].includes(activeAnalysis.direction)}
+              onClick={() => paperOrderMutation.mutate()}
+            >
+              Create paper order
+            </Button>
+          </>
         }
       >
         {activeAnalysis ? (
