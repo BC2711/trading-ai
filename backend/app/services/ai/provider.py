@@ -3,11 +3,32 @@ from typing import Protocol
 
 import httpx
 
+try:
+    from llama_cpp import Llama
+except ImportError:
+    Llama = None
+
 from app.core.config import settings
 from app.models import BacktestRun, MarketCandle, RiskSetting, Signal, Strategy
 from app.schemas.trading import AIAnalysisRequest
 from app.services.indicators.technical import indicator_snapshot
 from app.services.signals import build_signal_from_candles
+
+
+_LOCAL_MODEL_INSTANCE = None
+
+
+def get_local_llama_instance():
+    global _LOCAL_MODEL_INSTANCE
+    if _LOCAL_MODEL_INSTANCE is None:
+        if Llama is None or not settings.local_model_path:
+            return None
+        _LOCAL_MODEL_INSTANCE = Llama(
+            model_path=settings.local_model_path,
+            n_ctx=2048,
+            verbose=False
+        )
+    return _LOCAL_MODEL_INSTANCE
 
 
 class AIAnalysisResult:
@@ -286,7 +307,155 @@ class OpenAIProvider(RuleBasedAIProvider):
         return json.loads(cleaned)
 
 
+class OllamaProvider(OpenAIProvider):
+    """
+    Provider for local LLMs via Ollama. 
+    Reuses OpenAI parsing logic as Ollama can be prompted for JSON.
+    """
+    provider_name = "ollama"
+
+    def analyze(
+        self,
+        payload: AIAnalysisRequest,
+        signal: Signal | None,
+        candles: list[MarketCandle],
+        strategy: Strategy,
+        risk_settings: RiskSetting,
+        latest_backtest: BacktestRun | None,
+    ) -> AIAnalysisResult:
+        snapshot = indicator_snapshot(
+            closes=[candle.close for candle in candles],
+            highs=[candle.high for candle in candles],
+            lows=[candle.low for candle in candles],
+        )
+        derived_signal = build_signal_from_candles(candles)
+
+        direction = signal.direction if signal else str(derived_signal["direction"])
+        confidence = signal.confidence if signal else float(derived_signal["confidence"])
+        reason = signal.reason if signal else str(derived_signal["reason"])
+        backtest_summary = latest_backtest.summary if latest_backtest else None
+
+        prompt = self._build_prompt(
+            symbol=signal.symbol_ref.symbol if signal else payload.symbol.upper(),
+            timeframe=signal.timeframe if signal else payload.timeframe,
+            direction=direction,
+            confidence=confidence,
+            reason=reason,
+            indicators=snapshot,
+            strategy_name=strategy.name,
+            risk_settings=risk_settings,
+            backtest_summary=backtest_summary,
+        )
+
+        try:
+            url = f"{settings.ollama_base_url.rstrip('/')}/api/generate"
+            request_body = {
+                "model": settings.ollama_model,
+                "prompt": prompt,
+                "stream": False,
+                "format": "json"
+            }
+            response = httpx.post(url, json=request_body, timeout=60.0)
+            response.raise_for_status()
+            content = response.json().get("response", "")
+            parsed = self._parse_analysis(content)
+            
+            return AIAnalysisResult(
+                provider=self.provider_name,
+                symbol=signal.symbol_ref.symbol if signal else payload.symbol.upper(),
+                timeframe=signal.timeframe if signal else payload.timeframe,
+                direction=parsed["direction"],
+                confidence=round(float(parsed["confidence"]), 4),
+                explanation=parsed["explanation"],
+                reasoning=parsed["reasoning"],
+                risk_notes=parsed["risk_notes"],
+                suggested_action=parsed["suggested_action"],
+                indicators={key: float(parsed["indicators"][key]) for key in parsed["indicators"]},
+                backtest_summary=backtest_summary,
+            )
+        except Exception:
+            # Fallback to rules if local LLM fails or returns bad JSON
+            return super(OpenAIProvider, self).analyze(payload, signal, candles, strategy, risk_settings, latest_backtest)
+
+
+class LocalLlamaProvider(OpenAIProvider):
+    """
+    Provider for local LLMs via llama-cpp-python. 
+    Requires a local GGUF model file and the llama-cpp-python package.
+    """
+    provider_name = "local-llama"
+
+    def analyze(
+        self,
+        payload: AIAnalysisRequest,
+        signal: Signal | None,
+        candles: list[MarketCandle],
+        strategy: Strategy,
+        risk_settings: RiskSetting,
+        latest_backtest: BacktestRun | None,
+    ) -> AIAnalysisResult:
+        llm = get_local_llama_instance()
+        if not llm:
+            # Fallback to rules if the model file is missing or library not installed
+            return super(OpenAIProvider, self).analyze(payload, signal, candles, strategy, risk_settings, latest_backtest)
+
+        snapshot = indicator_snapshot(
+            closes=[candle.close for candle in candles],
+            highs=[candle.high for candle in candles],
+            lows=[candle.low for candle in candles],
+        )
+        derived_signal = build_signal_from_candles(candles)
+
+        direction = signal.direction if signal else str(derived_signal["direction"])
+        confidence = signal.confidence if signal else float(derived_signal["confidence"])
+        reason = signal.reason if signal else str(derived_signal["reason"])
+        backtest_summary = latest_backtest.summary if latest_backtest else None
+
+        prompt = self._build_prompt(
+            symbol=signal.symbol_ref.symbol if signal else payload.symbol.upper(),
+            timeframe=signal.timeframe if signal else payload.timeframe,
+            direction=direction,
+            confidence=confidence,
+            reason=reason,
+            indicators=snapshot,
+            strategy_name=strategy.name,
+            risk_settings=risk_settings,
+            backtest_summary=backtest_summary,
+        )
+
+        try:
+            output = llm(
+                f"Instruction: {prompt}\nResponse: ",
+                max_tokens=600,
+                stop=["Instruction:", "Q:"],
+                echo=False
+            )
+            content = output["choices"][0]["text"]
+            parsed = self._parse_analysis(content)
+            
+            return AIAnalysisResult(
+                provider=self.provider_name,
+                symbol=signal.symbol_ref.symbol if signal else payload.symbol.upper(),
+                timeframe=signal.timeframe if signal else payload.timeframe,
+                direction=parsed["direction"],
+                confidence=round(float(parsed["confidence"]), 4),
+                explanation=parsed["explanation"],
+                reasoning=parsed["reasoning"],
+                risk_notes=parsed["risk_notes"],
+                suggested_action=parsed["suggested_action"],
+                indicators={key: float(parsed["indicators"][key]) for key in parsed["indicators"]},
+                backtest_summary=backtest_summary,
+            )
+        except Exception:
+            return super(OpenAIProvider, self).analyze(payload, signal, candles, strategy, risk_settings, latest_backtest)
+
+
 def get_ai_provider() -> AIProvider:
-    if settings.ai_provider.lower() == "openai":
+    provider_lower = settings.ai_provider.lower()
+    if provider_lower == "openai":
         return OpenAIProvider()
+    if provider_lower == "ollama":
+        return OllamaProvider()
+    if provider_lower == "local-llama":
+        return LocalLlamaProvider()
     return RuleBasedAIProvider()

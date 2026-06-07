@@ -245,14 +245,14 @@ def get_ai_provider_status() -> AIProviderStatusResponse:
     return AIProviderStatusResponse(
         provider=settings.ai_provider,
         openai_available=bool(settings.openai_api_key),
-        available_providers=["rules", "openai"],
+        available_providers=["rules", "openai", "ollama", "local-llama"],
     )
 
 
 @router.patch("/ai/provider", response_model=AIProviderStatusResponse, tags=["ai"])
 def patch_ai_provider(payload: AIProviderStatusRequest) -> AIProviderStatusResponse:
     provider = payload.provider.lower()
-    if provider not in {"rules", "openai"}:
+    if provider not in {"rules", "openai", "ollama", "local-llama"}:
         raise HTTPException(status_code=400, detail="Unsupported AI provider")
     if provider == "openai" and not settings.openai_api_key:
         raise HTTPException(status_code=400, detail="OpenAI provider requires OPENAI_API_KEY")
@@ -261,7 +261,7 @@ def patch_ai_provider(payload: AIProviderStatusRequest) -> AIProviderStatusRespo
     return AIProviderStatusResponse(
         provider=settings.ai_provider,
         openai_available=bool(settings.openai_api_key),
-        available_providers=["rules", "openai"],
+        available_providers=["rules", "openai", "ollama", "local-llama"],
     )
 
 

@@ -1,7 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import AIAnalysisRecord, BacktestRun, Signal
+from app.models import AIAnalysisRecord, BacktestRun, Signal, Symbol
 from app.schemas.trading import AIAnalysisRequest, AIAnalysisResponse
 from app.services.ai.provider import get_ai_provider
 from app.services.audit import record_event
@@ -90,13 +90,16 @@ def resolve_signal(db: Session, payload: AIAnalysisRequest) -> Signal | None:
     statement = (
         select(Signal)
         .join(Signal.symbol_ref)
-        .where(Signal.timeframe == payload.timeframe, Signal.status == "active")
+        .where(
+            Signal.timeframe == payload.timeframe,
+            Signal.status == "active",
+            Symbol.symbol == payload.symbol.upper()
+        )
         .order_by(Signal.created_at.desc())
     )
-    signals = db.scalars(statement).all()
-    for signal in signals:
-        if signal.symbol_ref.symbol == payload.symbol.upper():
-            return signal
+    signal = db.scalars(statement).first()
+    if signal:
+        return signal
 
     generated = generate_signals(db, payload.symbol, payload.timeframe)
     for signal in generated:
@@ -109,10 +112,10 @@ def get_latest_backtest(db: Session, symbol: str, timeframe: str) -> BacktestRun
     statement = (
         select(BacktestRun)
         .join(BacktestRun.symbol_ref)
-        .where(BacktestRun.timeframe == timeframe)
+        .where(
+            BacktestRun.timeframe == timeframe,
+            Symbol.symbol == symbol.upper()
+        )
         .order_by(BacktestRun.created_at.desc())
     )
-    for run in db.scalars(statement).all():
-        if run.symbol_ref.symbol == symbol:
-            return run
-    return None
+    return db.scalars(statement).first()

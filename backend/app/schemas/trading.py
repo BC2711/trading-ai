@@ -203,7 +203,7 @@ class AIAnalysisResponse(BaseModel):
 
 
 class AIProviderStatusRequest(BaseModel):
-    provider: str = Field(default="rules", pattern="^(rules|openai)$")
+    provider: str = Field(default="rules", pattern="^(rules|openai|ollama|local-llama)$")
 
 
 class AIProviderStatusResponse(BaseModel):
