@@ -1,12 +1,34 @@
+import secrets
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import JSONResponse, Response
+from starlette.requests import Request
 
 from app.api.routes import router as api_router
 from app.core.config import settings
 from app.core.monitoring import configure_monitoring
 from app.db.init_db import init_db
 
-app = FastAPI(title=settings.app_name)
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    init_db()
+    yield
+
+
+app = FastAPI(
+    title=settings.app_name,
+    docs_url="/docs" if settings.expose_docs else None,
+    redoc_url="/redoc" if settings.expose_docs else None,
+    openapi_url="/openapi.json" if settings.expose_docs else None,
+    lifespan=lifespan,
+)
+
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
 
 app.add_middleware(
     CORSMiddleware,
@@ -16,13 +38,48 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def add_security_headers(
+    request: Request,
+    call_next: Callable[[Request], Awaitable[Response]],
+) -> Response:
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    if settings.is_production:
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    return response
+
+
+@app.middleware("http")
+async def require_api_key(
+    request: Request,
+    call_next: Callable[[Request], Awaitable[Response]],
+) -> Response:
+    if request.method == "OPTIONS" or not settings.api_key_auth_enabled:
+        return await call_next(request)
+
+    public_paths = {"/", f"{settings.api_prefix}/health"}
+    if request.url.path in public_paths:
+        return await call_next(request)
+
+    if request.url.path.startswith(settings.api_prefix):
+        provided_api_key = request.headers.get("X-API-Key", "")
+        if not secrets.compare_digest(provided_api_key, settings.api_key or ""):
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Missing or invalid API key"},
+                headers={"WWW-Authenticate": "ApiKey"},
+            )
+
+    return await call_next(request)
+
+
 app.include_router(api_router, prefix=settings.api_prefix)
 configure_monitoring(app)
-
-
-@app.on_event("startup")
-def startup() -> None:
-    init_db()
 
 
 @app.get("/", tags=["root"])

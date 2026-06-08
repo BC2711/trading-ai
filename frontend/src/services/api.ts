@@ -3,9 +3,11 @@ import axios from "axios";
 import type { Signal } from "../types/signal";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+const API_KEY = import.meta.env.VITE_API_KEY;
 
 export const apiClient = axios.create({
-  baseURL: API_BASE_URL
+  baseURL: API_BASE_URL,
+  headers: API_KEY ? { "X-API-Key": API_KEY } : undefined
 });
 
 export async function fetchSignals(): Promise<Signal[]> {

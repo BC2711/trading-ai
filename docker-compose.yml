@@ -5,6 +5,7 @@ services:
     ports:
       - "8000:8000"
     environment:
+      ENVIRONMENT: development
       DATABASE_URL: postgresql+psycopg://trading:trading@db:5432/trading
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
@@ -18,9 +19,17 @@ services:
       OPENAI_API_KEY: ""
       OPENAI_API_BASE_URL: https://api.openai.com
       OPENAI_MODEL: gpt-3.5-turbo
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   frontend:
     image: node:22-alpine
@@ -30,17 +39,20 @@ services:
       - "5173:5173"
     environment:
       VITE_API_BASE_URL: http://localhost:8000
+      VITE_API_KEY: ""
     volumes:
       - ./frontend:/app
       - frontend_node_modules:/app/node_modules
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
   celery_worker:
     build:
       context: ./backend
     command: celery -A app.core.celery_app.celery_app worker --loglevel=info
     environment:
+      ENVIRONMENT: development
       DATABASE_URL: postgresql+psycopg://trading:trading@db:5432/trading
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
@@ -54,14 +66,17 @@ services:
       OPENAI_API_BASE_URL: https://api.openai.com
       OPENAI_MODEL: gpt-3.5-turbo
     depends_on:
-      - backend
-      - redis
+      backend:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   scheduler:
     build:
       context: ./backend
     command: python -m app.workers.scheduler
     environment:
+      ENVIRONMENT: development
       DATABASE_URL: postgresql+psycopg://trading:trading@db:5432/trading
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
@@ -75,8 +90,10 @@ services:
       OPENAI_API_BASE_URL: https://api.openai.com
       OPENAI_MODEL: gpt-3.5-turbo
     depends_on:
-      - backend
-      - redis
+      backend:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   nginx:
     image: nginx:1.27-alpine
@@ -85,8 +102,10 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      - backend
-      - frontend
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
 
   prometheus:
     image: prom/prometheus:v2.55.1
@@ -95,7 +114,8 @@ services:
     volumes:
       - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
   grafana:
     image: grafana/grafana:11.4.0
@@ -120,6 +140,11 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trading -d trading"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7.4-alpine
@@ -127,6 +152,11 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   frontend_node_modules:

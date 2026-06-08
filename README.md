@@ -49,6 +49,46 @@ npm install
 npm run dev
 ```
 
+## Production Baseline
+
+Before running with `ENVIRONMENT=production`, set these values explicitly:
+
+```env
+ENVIRONMENT=production
+API_KEY=replace-with-a-long-random-secret
+ALLOWED_HOSTS=["your-domain.com","api.your-domain.com"]
+CORS_ORIGINS=["https://your-domain.com"]
+DATABASE_URL=postgresql+psycopg://user:password@db-host:5432/trading
+REDIS_URL=redis://redis-host:6379/0
+CELERY_BROKER_URL=redis://redis-host:6379/1
+CELERY_RESULT_BACKEND=redis://redis-host:6379/2
+```
+
+Production mode fails fast if `API_KEY` is missing or wildcard hosts/origins are configured. API routes under `/api/*` require the `X-API-Key` header, except `/api/health`, which stays public for load balancers. The frontend can send that key by setting `VITE_API_KEY`, but for public internet deployments prefer serving the dashboard behind a private network, VPN, SSO proxy, or a backend session-based auth layer.
+
+Run database migrations before deploying new backend code:
+
+```bash
+cd backend
+alembic upgrade head
+```
+
+Recommended pre-deploy checks:
+
+```bash
+cd backend
+pip install -r requirements-dev.txt
+pytest
+alembic upgrade head
+
+cd ../frontend
+npm ci
+npm run build
+npm audit --audit-level=moderate
+```
+
+Docker Compose includes service health checks, but Docker Desktop or Docker Engine must be installed on the host. This environment did not have Docker available, so Compose validation must be run on the deployment machine.
+
 ## Initial API
 
 - `GET /api/health`
