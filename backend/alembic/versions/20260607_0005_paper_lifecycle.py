@@ -22,6 +22,19 @@ def upgrade() -> None:
     columns = {column["name"] for column in inspector.get_columns("paper_positions")}
     constraints = {constraint["name"] for constraint in inspector.get_unique_constraints("paper_positions")}
 
+    if bind.dialect.name == "sqlite":
+        with op.batch_alter_table("paper_positions") as batch_op:
+            if "uq_paper_position_symbol_side_status" in constraints:
+                batch_op.drop_constraint("uq_paper_position_symbol_side_status", type_="unique")
+            if "realized_pnl" not in columns:
+                batch_op.add_column(sa.Column("realized_pnl", sa.Float(), nullable=False, server_default="0"))
+            if "closed_at" not in columns:
+                batch_op.add_column(sa.Column("closed_at", sa.DateTime(timezone=True), nullable=True))
+        if "realized_pnl" not in columns:
+            with op.batch_alter_table("paper_positions") as batch_op:
+                batch_op.alter_column("realized_pnl", server_default=None)
+        return
+
     if "uq_paper_position_symbol_side_status" in constraints:
         op.drop_constraint("uq_paper_position_symbol_side_status", "paper_positions", type_="unique")
 
@@ -34,9 +47,23 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    inspector = sa.inspect(op.get_bind())
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
     columns = {column["name"] for column in inspector.get_columns("paper_positions")}
     constraints = {constraint["name"] for constraint in inspector.get_unique_constraints("paper_positions")}
+
+    if bind.dialect.name == "sqlite":
+        with op.batch_alter_table("paper_positions") as batch_op:
+            if "closed_at" in columns:
+                batch_op.drop_column("closed_at")
+            if "realized_pnl" in columns:
+                batch_op.drop_column("realized_pnl")
+            if "uq_paper_position_symbol_side_status" not in constraints:
+                batch_op.create_unique_constraint(
+                    "uq_paper_position_symbol_side_status",
+                    ["symbol_id", "side", "status"],
+                )
+        return
 
     if "closed_at" in columns:
         op.drop_column("paper_positions", "closed_at")

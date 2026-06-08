@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 import json
-from typing import Protocol
+from typing import Any, Protocol
 
 import httpx
 
@@ -21,9 +23,9 @@ logger = logging.getLogger(__name__)
 _LOCAL_MODEL_INSTANCE = None
 
 
-def get_local_llama_instance() -> Llama | None:
+def get_local_llama_instance() -> Any | None:
     """
-    Lazy-loader for the local LLM. 
+    Lazy-loader for the local LLM.
     Ensures the heavy model file is only loaded into RAM once.
     """
     global _LOCAL_MODEL_INSTANCE
@@ -31,22 +33,21 @@ def get_local_llama_instance() -> Llama | None:
         if Llama is None or not settings.local_model_path:
             logger.warning("Local Llama requested but llama-cpp-python is not installed or LOCAL_MODEL_PATH is unset.")
             return None
-        
+
         try:
-            logger.info(f"Loading local LLM from {settings.local_model_path}...")
+            logger.info("Loading local LLM from %s...", settings.local_model_path)
             _LOCAL_MODEL_INSTANCE = Llama(
                 model_path=settings.local_model_path,
                 n_ctx=2048,
-                n_threads=settings.market_sync_interval_minutes, # Heuristic for CPU threads
+                n_threads=settings.market_sync_interval_minutes,
                 verbose=False,
-                # Use GPU if available (requires llama-cpp-python with CUDA/Metal support)
-                n_gpu_layers=-1 if "cuda" in (settings.database_url or "") else 0 
+                n_gpu_layers=-1 if "cuda" in (settings.database_url or "") else 0,
             )
             logger.info("Local LLM loaded successfully.")
-        except Exception as e:
-            logger.error(f"Failed to load local LLM: {e}")
+        except Exception:
+            logger.exception("Failed to load local LLM")
             return None
-            
+
     return _LOCAL_MODEL_INSTANCE
 
 
