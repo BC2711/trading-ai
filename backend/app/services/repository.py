@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import MarketCandle, RiskSetting, Strategy, Symbol
-from app.schemas.trading import RiskSettingUpdate, StrategyUpdate, SymbolCreate
+from app.schemas.trading import RiskSettingUpdate, StrategyCreate, StrategyUpdate, SymbolCreate
 from app.services.audit import record_event
 
 
@@ -70,6 +70,9 @@ def ensure_default_strategy(db: Session) -> Strategy:
         description="Rule-based starter strategy using EMA trend, RSI, and basic risk constraints.",
         timeframe="15m",
         status="active",
+        enabled=True,
+        parameters={"fast_window": 9, "slow_window": 21, "rsi_period": 14},
+        performance={},
     )
     db.add(strategy)
     db.commit()
@@ -92,12 +95,45 @@ def ensure_default_risk_settings(db: Session) -> RiskSetting:
         max_daily_loss=0.03,
         max_open_trades=3,
         max_symbol_exposure=0.2,
+        max_consecutive_losses=3,
+        emergency_stop=False,
+        live_trading_enabled=False,
         status="active",
     )
     db.add(settings)
     db.commit()
     db.refresh(settings)
     return settings
+
+
+def list_strategies(db: Session) -> list[Strategy]:
+    seed_defaults(db)
+    return list(db.scalars(select(Strategy).order_by(Strategy.created_at.desc())).all())
+
+
+def create_strategy(db: Session, payload: StrategyCreate) -> Strategy:
+    strategy = Strategy(
+        name=payload.name,
+        description=payload.description,
+        timeframe=payload.timeframe,
+        status=payload.status,
+        parameters=payload.parameters,
+        enabled=payload.enabled,
+        performance={},
+    )
+    db.add(strategy)
+    db.commit()
+    db.refresh(strategy)
+    record_event(
+        db,
+        event_type="strategy.created",
+        entity_type="strategy",
+        entity_id=strategy.id,
+        message=f"Created strategy {strategy.name}.",
+        metadata={"timeframe": strategy.timeframe, "enabled": strategy.enabled},
+        commit=True,
+    )
+    return strategy
 
 
 def update_strategy(db: Session, strategy_id: int, payload: StrategyUpdate) -> Strategy | None:
@@ -123,6 +159,15 @@ def update_strategy(db: Session, strategy_id: int, payload: StrategyUpdate) -> S
         commit=True,
     )
     return strategy
+
+
+def delete_strategy(db: Session, strategy_id: int) -> bool:
+    strategy = db.get(Strategy, strategy_id)
+    if strategy is None:
+        return False
+    db.delete(strategy)
+    db.commit()
+    return True
 
 
 def update_risk_settings(db: Session, risk_setting_id: int, payload: RiskSettingUpdate) -> RiskSetting | None:

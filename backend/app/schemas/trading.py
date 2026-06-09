@@ -119,9 +119,21 @@ class StrategyRead(BaseModel):
     description: str
     timeframe: str
     status: str
+    parameters: dict = Field(default_factory=dict)
+    enabled: bool = True
+    performance: dict = Field(default_factory=dict)
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class StrategyCreate(BaseModel):
+    name: str = Field(..., min_length=2, max_length=120)
+    description: str = Field(default="", max_length=500)
+    timeframe: str = Field(default="15m", max_length=8)
+    status: str = Field(default="draft", max_length=16)
+    parameters: dict = Field(default_factory=dict)
+    enabled: bool = True
 
 
 class StrategyUpdate(BaseModel):
@@ -129,6 +141,9 @@ class StrategyUpdate(BaseModel):
     description: str | None = Field(default=None, max_length=500)
     timeframe: str | None = Field(default=None, max_length=8)
     status: str | None = Field(default=None, max_length=16)
+    parameters: dict | None = None
+    enabled: bool | None = None
+    performance: dict | None = None
 
 
 class RiskSettingRead(BaseModel):
@@ -138,6 +153,9 @@ class RiskSettingRead(BaseModel):
     max_daily_loss: float
     max_open_trades: int
     max_symbol_exposure: float
+    max_consecutive_losses: int
+    emergency_stop: bool
+    live_trading_enabled: bool
     status: str
     created_at: datetime
 
@@ -150,6 +168,9 @@ class RiskSettingUpdate(BaseModel):
     max_daily_loss: float | None = Field(default=None, gt=0, le=1)
     max_open_trades: int | None = Field(default=None, ge=1, le=50)
     max_symbol_exposure: float | None = Field(default=None, gt=0, le=1)
+    max_consecutive_losses: int | None = Field(default=None, ge=1, le=20)
+    emergency_stop: bool | None = None
+    live_trading_enabled: bool | None = None
     status: str | None = Field(default=None, max_length=16)
 
 
@@ -158,6 +179,9 @@ class BacktestRunRequest(BaseModel):
     timeframe: str = "15m"
     initial_balance: float = Field(default=10000.0, gt=0)
     lookback: int = Field(default=240, ge=60, le=1000)
+    fee_rate: float = Field(default=0.001, ge=0, le=0.05)
+    slippage_rate: float = Field(default=0.0005, ge=0, le=0.05)
+    spread_rate: float = Field(default=0.0002, ge=0, le=0.05)
 
 
 class BacktestRunRead(BaseModel):
@@ -170,6 +194,12 @@ class BacktestRunRead(BaseModel):
     total_return: float
     win_rate: float
     max_drawdown: float
+    fees: float
+    slippage: float
+    spread: float
+    profit_factor: float
+    sharpe_ratio: float
+    equity_curve: list[dict] = Field(default_factory=list)
     trades_count: int
     winning_trades: int
     losing_trades: int
@@ -232,6 +262,9 @@ class PaperOrderRead(BaseModel):
     status: str
     risk_status: str
     risk_message: str
+    execution_mode: str = "paper"
+    exchange_order_id: str | None = None
+    failure_reason: str | None = None
     signal_id: int | None
     ai_analysis_id: int | None
     created_at: datetime
@@ -291,6 +324,127 @@ class AuditEventRead(BaseModel):
     created_at: datetime
 
 
+class UserCreate(BaseModel):
+    email: str = Field(..., min_length=5, max_length=255)
+    full_name: str = Field(..., min_length=2, max_length=160)
+    password: str = Field(..., min_length=8, max_length=128)
+    role: str = Field(default="trader", pattern="^(admin|trader)$")
+
+
+class UserLogin(BaseModel):
+    email: str
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+class UserRead(BaseModel):
+    id: int
+    email: str
+    full_name: str
+    role: str
+    is_active: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class UserUpdate(BaseModel):
+    full_name: str | None = Field(default=None, min_length=2, max_length=160)
+    role: str | None = Field(default=None, pattern="^(admin|trader)$")
+    is_active: bool | None = None
+
+
+class ApiCredentialCreate(BaseModel):
+    exchange: str = Field(..., min_length=2, max_length=48)
+    api_key: str = Field(..., min_length=3, max_length=255)
+    api_secret: str = Field(..., min_length=3, max_length=1000)
+    mode: str = Field(default="paper", pattern="^(paper|live)$")
+    is_active: bool = True
+
+
+class ApiCredentialRead(BaseModel):
+    id: int
+    exchange: str
+    api_key: str
+    mode: str
+    is_active: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ApiCredentialUpdate(BaseModel):
+    exchange: str | None = Field(default=None, min_length=2, max_length=48)
+    api_key: str | None = Field(default=None, min_length=3, max_length=255)
+    api_secret: str | None = Field(default=None, min_length=3, max_length=1000)
+    mode: str | None = Field(default=None, pattern="^(paper|live)$")
+    is_active: bool | None = None
+
+
+class AIModelTrainRequest(BaseModel):
+    name: str = Field(..., min_length=2, max_length=160)
+    symbol: str = "BTCUSDT"
+    timeframe: str = "15m"
+    lookback: int = Field(default=240, ge=80, le=1000)
+
+
+class AIModelRead(BaseModel):
+    id: int
+    name: str
+    symbol: str
+    timeframe: str
+    model_type: str
+    model_path: str
+    metrics: dict
+    status: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class AIModelPrediction(BaseModel):
+    model_id: int
+    symbol: str
+    direction: str
+    confidence: float
+    features: dict
+
+
+class BacktestReport(BaseModel):
+    run: BacktestRunRead
+    equity_curve: list[dict]
+    metrics: dict
+
+
+class NotificationCreate(BaseModel):
+    title: str = Field(..., min_length=2, max_length=180)
+    message: str = Field(..., min_length=2, max_length=800)
+    severity: str = Field(default="info", pattern="^(info|warning|error)$")
+
+
+class NotificationRead(NotificationCreate):
+    id: int
+    is_read: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class SystemLogRead(BaseModel):
+    id: int
+    level: str
+    source: str
+    message: str
+    context: dict
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class NavigationChildRead(BaseModel):
     label: str
     href: str
@@ -309,7 +463,7 @@ class NavigationItemRead(BaseModel):
 
 
 class CurrentUserRead(BaseModel):
-    id: str
+    id: int
     name: str
     role: str
     permissions: list[str]

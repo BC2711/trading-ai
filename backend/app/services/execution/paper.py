@@ -1,5 +1,3 @@
-from dataclasses import dataclass
-
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -7,15 +5,8 @@ from app.models import AIAnalysisRecord, PaperOrder, PaperPosition, Signal
 from app.models.trading import utc_now
 from app.schemas.trading import PaperOrderRead, PaperOrderRequest, PaperPositionRead
 from app.services.audit import record_event
+from app.services.risk import PAPER_EQUITY, validate_trade
 from app.services.repository import ensure_default_risk_settings, get_symbol, list_candles, seed_defaults
-
-PAPER_EQUITY = 10000.0
-
-
-@dataclass
-class RiskDecision:
-    approved: bool
-    message: str
 
 
 def create_paper_order(db: Session, payload: PaperOrderRequest) -> PaperOrder:
@@ -30,7 +21,7 @@ def create_paper_order(db: Session, payload: PaperOrderRequest) -> PaperOrder:
 
     side = resolve_order_side(db, payload)
     quantity = payload.quantity or suggested_quantity(db, latest_price)
-    risk = evaluate_risk(db, symbol.id, latest_price, quantity)
+    risk = validate_trade(db, symbol_id=symbol.id, price=latest_price, quantity=quantity, execution_mode="paper")
     now = utc_now()
     order = PaperOrder(
         symbol_id=symbol.id,
@@ -44,6 +35,8 @@ def create_paper_order(db: Session, payload: PaperOrderRequest) -> PaperOrder:
         status="filled" if risk.approved else "rejected",
         risk_status="approved" if risk.approved else "blocked",
         risk_message=risk.message,
+        execution_mode="paper",
+        failure_reason=None if risk.approved else risk.message,
         filled_at=now if risk.approved else None,
     )
     db.add(order)
@@ -201,24 +194,6 @@ def suggested_quantity(db: Session, price: float) -> float:
     return max(0.000001, notional / price)
 
 
-def evaluate_risk(db: Session, symbol_id: int, price: float, quantity: float) -> RiskDecision:
-    risk_settings = ensure_default_risk_settings(db)
-    notional = price * quantity
-    open_positions = list(db.scalars(select(PaperPosition).where(PaperPosition.status == "open")).all())
-    current_symbol_exposure = sum(position.quantity * position.mark_price for position in open_positions if position.symbol_id == symbol_id)
-
-    if len(open_positions) >= risk_settings.max_open_trades:
-        return RiskDecision(False, f"Blocked by risk guard: max open trades is {risk_settings.max_open_trades}.")
-
-    if notional > PAPER_EQUITY * risk_settings.max_symbol_exposure:
-        return RiskDecision(False, f"Blocked by risk guard: order exceeds {risk_settings.max_symbol_exposure * 100:.1f}% symbol exposure.")
-
-    if current_symbol_exposure + notional > PAPER_EQUITY * risk_settings.max_symbol_exposure:
-        return RiskDecision(False, "Blocked by risk guard: combined symbol exposure would exceed the configured limit.")
-
-    return RiskDecision(True, "Approved by paper risk guard and filled at latest candle close.")
-
-
 def upsert_position(db: Session, symbol_id: int, order_side: str, quantity: float, price: float, timestamp) -> None:
     position_side = "long" if order_side == "buy" else "short"
     position = db.scalar(
@@ -274,6 +249,9 @@ def order_to_schema(order: PaperOrder) -> PaperOrderRead:
         status=order.status,
         risk_status=order.risk_status,
         risk_message=order.risk_message,
+        execution_mode=order.execution_mode,
+        exchange_order_id=order.exchange_order_id,
+        failure_reason=order.failure_reason,
         signal_id=order.signal_id,
         ai_analysis_id=order.ai_analysis_id,
         created_at=order.created_at,

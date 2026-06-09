@@ -32,6 +32,8 @@ def test_production_requires_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_production_rejects_wildcard_hosts(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.setenv("API_KEY", "prod-secret")
+    monkeypatch.setenv("JWT_SECRET", "prod-jwt-secret")
+    monkeypatch.setenv("CREDENTIAL_ENCRYPTION_SECRET", "prod-credential-secret")
     monkeypatch.setenv("ALLOWED_HOSTS", '["*"]')
 
     with pytest.raises(ValidationError, match="ALLOWED_HOSTS cannot contain"):

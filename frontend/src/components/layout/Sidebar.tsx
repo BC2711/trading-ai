@@ -2,13 +2,17 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
+  Bell,
+  BrainCircuit,
   ChevronDown,
   Clock3,
+  KeyRound,
   LayoutDashboard,
   Menu,
   Settings,
   Sparkles,
   SlidersHorizontal,
+  ShieldCheck,
   TrendingUp,
   Users,
   Wallet,
@@ -46,8 +50,12 @@ type NavItem = {
 
 const iconMap: Record<string, LucideIcon> = {
   activity: Activity,
+  bell: Bell,
+  brain: BrainCircuit,
   clock: Clock3,
+  key: KeyRound,
   "layout-dashboard": LayoutDashboard,
+  "shield-check": ShieldCheck,
   "sliders-horizontal": SlidersHorizontal,
   sparkles: Sparkles,
   "trending-up": TrendingUp,
@@ -68,13 +76,36 @@ const fallbackNavItems: NavItem[] = [
     ]
   },
   {
+    label: "Admin",
+    icon: Users,
+    href: "#/users",
+    permission: "users:manage",
+    children: [
+      { label: "Users", icon: Users, href: "#/users", permission: "users:manage" },
+      { label: "API Keys", icon: KeyRound, href: "#/api-keys", permission: "api-credentials:manage" },
+      { label: "Risk Settings", icon: ShieldCheck, href: "#/risk-settings", permission: "risk-settings:manage" }
+    ]
+  },
+  {
+    label: "Research",
+    icon: Sparkles,
+    href: "#/strategies",
+    permission: "strategies:view",
+    children: [
+      { label: "Strategies", icon: SlidersHorizontal, href: "#/strategies", permission: "strategies:view" },
+      { label: "Backtests", icon: Activity, href: "#/backtests", permission: "backtests:view" },
+      { label: "AI Models", icon: BrainCircuit, href: "#/ai-models", permission: "ai-models:view" }
+    ]
+  },
+  {
     label: "Trading",
     icon: TrendingUp,
     href: "#/trading",
     permission: "orders:view",
     children: [
       { label: "Orders", icon: Activity, href: "#/trading/orders", permission: "orders:view" },
-      { label: "Positions", icon: Wallet, href: "#/trading/positions", permission: "positions:view" }
+      { label: "Positions", icon: Wallet, href: "#/trading/positions", permission: "positions:view" },
+      { label: "Trade History", icon: Clock3, href: "#/trade-history", permission: "orders:view" }
     ]
   },
   {
@@ -84,7 +115,9 @@ const fallbackNavItems: NavItem[] = [
     permission: "audit:view",
     children: [
       { label: "Timeline", icon: Clock3, href: "#/activity", permission: "audit:view" },
-      { label: "Audit Log", icon: Users, href: "#/activity/audit", permission: "audit:view" }
+      { label: "Audit Log", icon: Users, href: "#/activity/audit", permission: "audit:view" },
+      { label: "Logs", icon: Activity, href: "#/logs", permission: "logs:view" },
+      { label: "Notifications", icon: Bell, href: "#/notifications", permission: "notifications:view" }
     ]
   }
 ];

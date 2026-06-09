@@ -4,9 +4,16 @@ from sqlalchemy.orm import Session
 from app.db.deps import get_db
 from app.models import MarketCandle, Signal
 from app.schemas.trading import (
+    AIModelPrediction,
+    AIModelRead,
+    AIModelTrainRequest,
     AIAnalysisRequest,
     AIAnalysisResponse,
+    ApiCredentialCreate,
+    ApiCredentialRead,
+    ApiCredentialUpdate,
     AuditEventRead,
+    BacktestReport,
     BacktestRunRead,
     BacktestRunRequest,
     CurrentUserRead,
@@ -17,6 +24,8 @@ from app.schemas.trading import (
     MarketDataSyncRequest,
     MarketDataSyncResponse,
     MarketDataTaskResponse,
+    NotificationCreate,
+    NotificationRead,
     PaperOrderRead,
     PaperOrderRequest,
     PaperPositionRead,
@@ -27,20 +36,33 @@ from app.schemas.trading import (
     RiskSettingUpdate,
     SignalGenerateRequest,
     SignalRead,
+    StrategyCreate,
     StrategyRead,
     StrategyUpdate,
     SymbolCreate,
     SymbolRead,
     AIProviderStatusRequest,
     AIProviderStatusResponse,
+    SystemLogRead,
+    TokenResponse,
+    UserCreate,
+    UserLogin,
+    UserRead,
+    UserUpdate,
 )
 from app.core.config import settings
+from app.core.security import create_access_token
+from app.db.auth import get_current_user as require_current_user, require_role
 from app.services.indicators.technical import moving_average_snapshot
+from app.models import User
 from app.services.repository import (
+    create_strategy,
     create_symbol,
+    delete_strategy,
     ensure_default_risk_settings,
     ensure_default_strategy,
     list_candles,
+    list_strategies,
     list_symbols,
     update_risk_settings,
     update_strategy,
@@ -49,8 +71,27 @@ from app.services.market_data.binance import MarketDataProviderError
 from app.services.market_data.jobs import run_market_data_refresh
 from app.services.market_data.sync import sync_market_data
 from app.services.ai.advisor import analyze_signal, analysis_to_response, get_ai_analysis, list_ai_analyses
+from app.services.ai.training import predict as predict_ai_model
+from app.services.ai.training import train_model
+from app.services.admin import (
+    authenticate_user,
+    create_credential,
+    create_notification,
+    delete_credential,
+    delete_user,
+    list_ai_models,
+    list_credentials,
+    list_notifications,
+    list_system_logs,
+    list_users,
+    mark_notification_read,
+    permissions_for_role,
+    register_user,
+    update_credential,
+    update_user,
+)
 from app.services.audit import audit_event_to_schema, list_audit_events
-from app.services.backtesting.engine import list_backtest_runs, run_backtest
+from app.services.backtesting.engine import get_backtest_run, list_backtest_runs, run_backtest
 from app.services.execution.paper import (
     cancel_paper_order,
     close_paper_position,
@@ -65,29 +106,6 @@ from app.services.signals import generate_signals, list_signals
 from app.workers.tasks import refresh_market_data
 
 router = APIRouter()
-
-TRADING_PERMISSIONS = [
-    "dashboard:view",
-    "portfolio:view",
-    "signals:view",
-    "signals:analyze",
-    "market-data:view",
-    "market-data:refresh",
-    "backtests:view",
-    "backtests:run",
-    "strategies:view",
-    "strategies:update",
-    "risk-settings:view",
-    "risk-settings:update",
-    "orders:view",
-    "orders:create",
-    "orders:cancel",
-    "positions:view",
-    "positions:close",
-    "ai-provider:view",
-    "ai-provider:update",
-    "audit:view",
-]
 
 NAVIGATION_ITEMS = [
     {
@@ -117,6 +135,28 @@ NAVIGATION_ITEMS = [
         ],
     },
     {
+        "label": "Admin",
+        "href": "#/users",
+        "icon": "users",
+        "permission": "users:manage",
+        "children": [
+            {"label": "Users", "href": "#/users", "icon": "users", "permission": "users:manage"},
+            {"label": "API Keys", "href": "#/api-keys", "icon": "key", "permission": "api-credentials:manage"},
+            {"label": "Risk Settings", "href": "#/risk-settings", "icon": "shield-check", "permission": "risk-settings:manage"},
+        ],
+    },
+    {
+        "label": "Research",
+        "href": "#/strategies",
+        "icon": "sparkles",
+        "permission": "strategies:view",
+        "children": [
+            {"label": "Strategies", "href": "#/strategies", "icon": "sliders-horizontal", "permission": "strategies:view"},
+            {"label": "Backtests", "href": "#/backtests", "icon": "activity", "permission": "backtests:view"},
+            {"label": "AI Models", "href": "#/ai-models", "icon": "brain", "permission": "ai-models:view"},
+        ],
+    },
+    {
         "label": "Trading",
         "href": "#/trading",
         "icon": "trending-up",
@@ -133,6 +173,12 @@ NAVIGATION_ITEMS = [
                 "href": "#/trading/positions",
                 "icon": "wallet",
                 "permission": "positions:view",
+            },
+            {
+                "label": "Trade History",
+                "href": "#/trade-history",
+                "icon": "clock",
+                "permission": "orders:view",
             },
         ],
     },
@@ -154,6 +200,8 @@ NAVIGATION_ITEMS = [
                 "icon": "users",
                 "permission": "audit:view",
             },
+            {"label": "Logs", "href": "#/logs", "icon": "activity", "permission": "logs:view"},
+            {"label": "Notifications", "href": "#/notifications", "icon": "bell", "permission": "notifications:view"},
         ],
     },
 ]
@@ -164,19 +212,119 @@ def health_check() -> dict[str, str]:
     return {"status": "ok", "service": "trading-ai-backend"}
 
 
+@router.post("/auth/register", response_model=UserRead, tags=["auth"])
+def post_register(payload: UserCreate, db: Session = Depends(get_db)) -> UserRead:
+    try:
+        return UserRead.model_validate(register_user(db, payload))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/auth/login", response_model=TokenResponse, tags=["auth"])
+def post_login(payload: UserLogin, db: Session = Depends(get_db)) -> TokenResponse:
+    user = authenticate_user(db, payload.email, payload.password)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    return TokenResponse(access_token=create_access_token(str(user.id), user.role))
+
+
 @router.get("/me", response_model=CurrentUserRead, tags=["auth"])
-def get_current_user() -> CurrentUserRead:
+def get_current_user(user: User = Depends(require_current_user)) -> CurrentUserRead:
     return CurrentUserRead(
-        id="system-operator",
-        name="Trading Operator",
-        role="operator",
-        permissions=TRADING_PERMISSIONS,
+        id=user.id,
+        name=user.full_name,
+        role=user.role,
+        permissions=permissions_for_role(user.role),
     )
 
 
 @router.get("/navigation", response_model=list[NavigationItemRead], tags=["auth"])
-def get_navigation() -> list[NavigationItemRead]:
-    return [NavigationItemRead.model_validate(item) for item in NAVIGATION_ITEMS]
+def get_navigation(user: User = Depends(require_current_user)) -> list[NavigationItemRead]:
+    permissions = set(permissions_for_role(user.role))
+    items = []
+    for item in NAVIGATION_ITEMS:
+        if item["permission"] not in permissions:
+            continue
+        filtered = {**item, "children": [child for child in item["children"] if child["permission"] in permissions]}
+        items.append(NavigationItemRead.model_validate(filtered))
+    return items
+
+
+@router.get("/users", response_model=list[UserRead], tags=["users"])
+def get_users(
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
+) -> list[UserRead]:
+    return [UserRead.model_validate(user) for user in list_users(db)]
+
+
+@router.patch("/users/{user_id}", response_model=UserRead, tags=["users"])
+def patch_user(
+    user_id: int,
+    payload: UserUpdate,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
+) -> UserRead:
+    user = update_user(db, user_id, payload)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return UserRead.model_validate(user)
+
+
+@router.delete("/users/{user_id}", tags=["users"])
+def delete_user_endpoint(
+    user_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
+) -> dict[str, bool]:
+    if not delete_user(db, user_id):
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"deleted": True}
+
+
+@router.get("/api-credentials", response_model=list[ApiCredentialRead], tags=["api-credentials"])
+def get_api_credentials(
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
+) -> list[ApiCredentialRead]:
+    return [ApiCredentialRead.model_validate(credential) for credential in list_credentials(db)]
+
+
+@router.post("/api-credentials", response_model=ApiCredentialRead, tags=["api-credentials"])
+def post_api_credential(
+    payload: ApiCredentialCreate,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
+) -> ApiCredentialRead:
+    if payload.mode == "live":
+        risk = ensure_default_risk_settings(db)
+        if not risk.live_trading_enabled or risk.emergency_stop:
+            raise HTTPException(status_code=400, detail="Live credentials require live trading enabled and emergency stop disabled")
+    return ApiCredentialRead.model_validate(create_credential(db, payload))
+
+
+@router.patch("/api-credentials/{credential_id}", response_model=ApiCredentialRead, tags=["api-credentials"])
+def patch_api_credential(
+    credential_id: int,
+    payload: ApiCredentialUpdate,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
+) -> ApiCredentialRead:
+    credential = update_credential(db, credential_id, payload)
+    if credential is None:
+        raise HTTPException(status_code=404, detail="API credential not found")
+    return ApiCredentialRead.model_validate(credential)
+
+
+@router.delete("/api-credentials/{credential_id}", tags=["api-credentials"])
+def delete_api_credential(
+    credential_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
+) -> dict[str, bool]:
+    if not delete_credential(db, credential_id):
+        raise HTTPException(status_code=404, detail="API credential not found")
+    return {"deleted": True}
 
 
 @router.get("/symbols", response_model=list[SymbolRead], tags=["symbols"])
@@ -275,7 +423,16 @@ def post_generate_signals(
 
 @router.get("/strategies", response_model=list[StrategyRead], tags=["strategies"])
 def get_strategies(db: Session = Depends(get_db)) -> list[StrategyRead]:
-    return [StrategyRead.model_validate(ensure_default_strategy(db))]
+    return [StrategyRead.model_validate(strategy) for strategy in list_strategies(db)]
+
+
+@router.post("/strategies", response_model=StrategyRead, tags=["strategies"])
+def post_strategy(
+    payload: StrategyCreate,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
+) -> StrategyRead:
+    return StrategyRead.model_validate(create_strategy(db, payload))
 
 
 @router.patch("/strategies/{strategy_id}", response_model=StrategyRead, tags=["strategies"])
@@ -289,6 +446,41 @@ def patch_strategy(
         raise HTTPException(status_code=404, detail="Strategy not found")
 
     return StrategyRead.model_validate(strategy)
+
+
+@router.post("/strategies/{strategy_id}/enable", response_model=StrategyRead, tags=["strategies"])
+def post_enable_strategy(
+    strategy_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
+) -> StrategyRead:
+    strategy = update_strategy(db, strategy_id, StrategyUpdate(enabled=True, status="active"))
+    if strategy is None:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+    return StrategyRead.model_validate(strategy)
+
+
+@router.post("/strategies/{strategy_id}/disable", response_model=StrategyRead, tags=["strategies"])
+def post_disable_strategy(
+    strategy_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
+) -> StrategyRead:
+    strategy = update_strategy(db, strategy_id, StrategyUpdate(enabled=False, status="paused"))
+    if strategy is None:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+    return StrategyRead.model_validate(strategy)
+
+
+@router.delete("/strategies/{strategy_id}", tags=["strategies"])
+def delete_strategy_endpoint(
+    strategy_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
+) -> dict[str, bool]:
+    if not delete_strategy(db, strategy_id):
+        raise HTTPException(status_code=404, detail="Strategy not found")
+    return {"deleted": True}
 
 
 @router.get("/risk-settings", response_model=list[RiskSettingRead], tags=["risk"])
@@ -328,6 +520,27 @@ def post_backtest_run(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return backtest_to_schema(run)
+
+
+@router.get("/backtests/{run_id}/report", response_model=BacktestReport, tags=["backtests"])
+def get_backtest_report(run_id: int, db: Session = Depends(get_db)) -> BacktestReport:
+    run = get_backtest_run(db, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Backtest not found")
+    schema = backtest_to_schema(run)
+    return BacktestReport(
+        run=schema,
+        equity_curve=schema.equity_curve,
+        metrics={
+            "total_return": schema.total_return,
+            "max_drawdown": schema.max_drawdown,
+            "profit_factor": schema.profit_factor,
+            "sharpe_ratio": schema.sharpe_ratio,
+            "win_rate": schema.win_rate,
+            "fees": schema.fees,
+            "slippage": schema.slippage,
+        },
+    )
 
 
 @router.post("/ai/analyze-signal", response_model=AIAnalysisResponse, tags=["ai"])
@@ -392,6 +605,31 @@ def get_ai_analysis_by_id(
         raise HTTPException(status_code=404, detail="AI analysis not found")
 
     return analysis_to_response(record)
+
+
+@router.get("/ai/models", response_model=list[AIModelRead], tags=["ai"])
+def get_ai_models(db: Session = Depends(get_db)) -> list[AIModelRead]:
+    return [AIModelRead.model_validate(model) for model in list_ai_models(db)]
+
+
+@router.post("/ai/models/train", response_model=AIModelRead, tags=["ai"])
+def post_ai_model_train(
+    payload: AIModelTrainRequest,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
+) -> AIModelRead:
+    try:
+        return AIModelRead.model_validate(train_model(db, name=payload.name, symbol=payload.symbol, timeframe=payload.timeframe, lookback=payload.lookback))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/ai/models/{model_id}/predict", response_model=AIModelPrediction, tags=["ai"])
+def post_ai_model_predict(model_id: int, db: Session = Depends(get_db)) -> AIModelPrediction:
+    try:
+        return AIModelPrediction.model_validate(predict_ai_model(db, model_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/orders", response_model=list[PaperOrderRead], tags=["paper-trading"])
@@ -484,6 +722,40 @@ def get_audit_events(
     ]
 
 
+@router.get("/notifications", response_model=list[NotificationRead], tags=["notifications"])
+def get_notifications(
+    unread_only: bool = Query(False),
+    db: Session = Depends(get_db),
+) -> list[NotificationRead]:
+    return [NotificationRead.model_validate(notification) for notification in list_notifications(db, unread_only)]
+
+
+@router.post("/notifications", response_model=NotificationRead, tags=["notifications"])
+def post_notification(
+    payload: NotificationCreate,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
+) -> NotificationRead:
+    return NotificationRead.model_validate(create_notification(db, payload))
+
+
+@router.post("/notifications/{notification_id}/read", response_model=NotificationRead, tags=["notifications"])
+def post_notification_read(notification_id: int, db: Session = Depends(get_db)) -> NotificationRead:
+    notification = mark_notification_read(db, notification_id)
+    if notification is None:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    return NotificationRead.model_validate(notification)
+
+
+@router.get("/logs", response_model=list[SystemLogRead], tags=["logs"])
+def get_logs(
+    limit: int = Query(100, ge=1, le=500),
+    level: str | None = Query(None, pattern="^(info|warning|error)$"),
+    db: Session = Depends(get_db),
+) -> list[SystemLogRead]:
+    return [SystemLogRead.model_validate(log) for log in list_system_logs(db, limit, level)]
+
+
 @router.get("/indicators/preview", tags=["indicators"])
 def indicator_preview() -> dict[str, float]:
     return moving_average_snapshot([101.2, 102.4, 101.9, 103.1, 104.8, 104.2])
@@ -527,6 +799,12 @@ def backtest_to_schema(run) -> BacktestRunRead:
         total_return=run.total_return,
         win_rate=run.win_rate,
         max_drawdown=run.max_drawdown,
+        fees=run.fees,
+        slippage=run.slippage,
+        spread=run.spread,
+        profit_factor=run.profit_factor,
+        sharpe_ratio=run.sharpe_ratio,
+        equity_curve=run.equity_curve,
         trades_count=run.trades_count,
         winning_trades=run.winning_trades,
         losing_trades=run.losing_trades,

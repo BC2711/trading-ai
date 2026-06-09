@@ -6,7 +6,7 @@ import { Badge } from "../ui/Badge";
 import { Button, IconButton } from "../ui/Button";
 import { Dropdown } from "../ui/Dropdown";
 import { SearchInput } from "../ui/SearchInput";
-import { fetchAuditEvents, fetchCurrentUser } from "../../services/api";
+import { fetchAuditEvents, fetchCurrentUser, logout } from "../../services/api";
 
 type NavbarProps = {
   isDark: boolean;
@@ -142,13 +142,21 @@ function UserProfileMenu({ name, role }: { name: string; role: string }) {
       {[
         ["Dashboard", "#/overview"],
         ["Trading", "#/trading"],
-        ["Audit Log", "#/activity/audit"]
+        ["Audit Log", "#/activity/audit"],
+        ["Sign out", "logout"]
       ].map(([item, href]) => (
         <button
           key={item}
           type="button"
           className="w-full rounded-[8px] px-3 py-2 text-left text-sm font-semibold text-slate-700 transition hover:bg-white/20 dark:text-white/75 dark:hover:bg-white/10"
-          onClick={() => { window.location.hash = href; }}
+          onClick={() => {
+            if (href === "logout") {
+              logout();
+              window.location.reload();
+              return;
+            }
+            window.location.hash = href;
+          }}
         >
           {item}
         </button>

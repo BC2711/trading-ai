@@ -8,6 +8,9 @@ class Settings(BaseSettings):
     api_prefix: str = "/api"
     docs_enabled: bool = True
     api_key: str | None = None
+    jwt_secret: str = "change-me-in-production"
+    access_token_expire_minutes: int = 120
+    credential_encryption_secret: str = "change-me-in-production"
     allowed_hosts: list[str] = ["localhost", "127.0.0.1", "testserver", "backend"]
     cors_origins: list[str] = [
         "http://localhost:5173",
@@ -53,6 +56,10 @@ class Settings(BaseSettings):
         if self.is_production:
             if not self.api_key:
                 raise ValueError("API_KEY is required when ENVIRONMENT=production")
+            if self.jwt_secret == "change-me-in-production":
+                raise ValueError("JWT_SECRET must be changed when ENVIRONMENT=production")
+            if self.credential_encryption_secret == "change-me-in-production":
+                raise ValueError("CREDENTIAL_ENCRYPTION_SECRET must be changed when ENVIRONMENT=production")
             if "*" in self.allowed_hosts:
                 raise ValueError("ALLOWED_HOSTS cannot contain '*' when ENVIRONMENT=production")
             if "*" in self.cors_origins:

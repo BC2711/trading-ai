@@ -10,6 +10,46 @@ export const apiClient = axios.create({
   headers: API_KEY ? { "X-API-Key": API_KEY } : undefined
 });
 
+apiClient.interceptors.request.use((config) => {
+  const token = localStorage.getItem("trading_ai_token");
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+export type LoginRequest = {
+  email: string;
+  password: string;
+};
+
+export type RegisterRequest = {
+  email: string;
+  full_name: string;
+  password: string;
+  role?: "admin" | "trader";
+};
+
+export type TokenResponse = {
+  access_token: string;
+  token_type: string;
+};
+
+export async function login(payload: LoginRequest): Promise<TokenResponse> {
+  const response = await apiClient.post<TokenResponse>("/api/auth/login", payload);
+  localStorage.setItem("trading_ai_token", response.data.access_token);
+  return response.data;
+}
+
+export async function register(payload: RegisterRequest): Promise<UserResource> {
+  const response = await apiClient.post<UserResource>("/api/auth/register", payload);
+  return response.data;
+}
+
+export function logout() {
+  localStorage.removeItem("trading_ai_token");
+}
+
 export async function fetchSignals(): Promise<Signal[]> {
   const response = await apiClient.get<Signal[]>("/api/signals");
   return response.data;
@@ -44,6 +84,9 @@ export type StrategyResource = {
   description: string;
   timeframe: string;
   status: string;
+  parameters: Record<string, unknown>;
+  enabled: boolean;
+  performance: Record<string, unknown>;
   created_at: string;
 };
 
@@ -54,17 +97,24 @@ export type RiskSetting = {
   max_daily_loss: number;
   max_open_trades: number;
   max_symbol_exposure: number;
+  max_consecutive_losses: number;
+  emergency_stop: boolean;
+  live_trading_enabled: boolean;
   status: string;
   created_at: string;
 };
 
-export type StrategyUpdateRequest = Partial<Pick<StrategyResource, "name" | "description" | "timeframe" | "status">>;
+export type StrategyUpdateRequest = Partial<Pick<StrategyResource, "name" | "description" | "timeframe" | "status" | "parameters" | "enabled" | "performance">>;
+export type StrategyCreateRequest = Pick<StrategyResource, "name" | "description" | "timeframe" | "status" | "enabled"> & {
+  parameters?: Record<string, unknown>;
+};
 
 export type RiskSettingUpdateRequest = Partial<
   Pick<
     RiskSetting,
     "name" | "max_risk_per_trade" | "max_daily_loss" | "max_open_trades" | "max_symbol_exposure" | "status"
   >
+  & Pick<RiskSetting, "max_consecutive_losses" | "emergency_stop" | "live_trading_enabled">
 >;
 
 export type MarketDataRefreshRequest = {
@@ -122,6 +172,9 @@ export type BacktestRunRequest = {
   timeframe?: string;
   initial_balance?: number;
   lookback?: number;
+  fee_rate?: number;
+  slippage_rate?: number;
+  spread_rate?: number;
 };
 
 export type BacktestRun = {
@@ -134,6 +187,12 @@ export type BacktestRun = {
   total_return: number;
   win_rate: number;
   max_drawdown: number;
+  fees: number;
+  slippage: number;
+  spread: number;
+  profit_factor: number;
+  sharpe_ratio: number;
+  equity_curve: Array<Record<string, unknown>>;
   trades_count: number;
   winning_trades: number;
   losing_trades: number;
@@ -252,6 +311,81 @@ export type AuditEventFilters = {
   entity_type?: string;
 };
 
+export type UserResource = {
+  id: number;
+  email: string;
+  full_name: string;
+  role: "admin" | "trader";
+  is_active: boolean;
+  created_at: string;
+};
+
+export type UserUpdateRequest = Partial<Pick<UserResource, "full_name" | "role" | "is_active">>;
+
+export type ApiCredentialRequest = {
+  exchange: string;
+  api_key: string;
+  api_secret: string;
+  mode: "paper" | "live";
+  is_active?: boolean;
+};
+
+export type ApiCredentialResource = {
+  id: number;
+  exchange: string;
+  api_key: string;
+  mode: "paper" | "live";
+  is_active: boolean;
+  created_at: string;
+};
+
+export type AIModelResource = {
+  id: number;
+  name: string;
+  symbol: string;
+  timeframe: string;
+  model_type: string;
+  model_path: string;
+  metrics: Record<string, number | string>;
+  status: string;
+  created_at: string;
+};
+
+export type AIModelTrainRequest = {
+  name: string;
+  symbol?: string;
+  timeframe?: string;
+  lookback?: number;
+};
+
+export type AIModelPrediction = {
+  model_id: number;
+  symbol: string;
+  direction: string;
+  confidence: number;
+  features: Record<string, number>;
+};
+
+export type NotificationResource = {
+  id: number;
+  title: string;
+  message: string;
+  severity: "info" | "warning" | "error";
+  is_read: boolean;
+  created_at: string;
+};
+
+export type NotificationCreateRequest = Pick<NotificationResource, "title" | "message" | "severity">;
+
+export type SystemLogResource = {
+  id: number;
+  level: "info" | "warning" | "error";
+  source: string;
+  message: string;
+  context: Record<string, unknown>;
+  created_at: string;
+};
+
 export type CurrentUser = {
   id: string;
   name: string;
@@ -286,6 +420,41 @@ export async function fetchNavigation(): Promise<NavigationItem[]> {
   return response.data;
 }
 
+export async function fetchUsers(): Promise<UserResource[]> {
+  const response = await apiClient.get<UserResource[]>("/api/users");
+  return response.data;
+}
+
+export async function updateUser(id: number, payload: UserUpdateRequest): Promise<UserResource> {
+  const response = await apiClient.patch<UserResource>(`/api/users/${id}`, payload);
+  return response.data;
+}
+
+export async function deleteUser(id: number): Promise<{ deleted: boolean }> {
+  const response = await apiClient.delete<{ deleted: boolean }>(`/api/users/${id}`);
+  return response.data;
+}
+
+export async function fetchApiCredentials(): Promise<ApiCredentialResource[]> {
+  const response = await apiClient.get<ApiCredentialResource[]>("/api/api-credentials");
+  return response.data;
+}
+
+export async function createApiCredential(payload: ApiCredentialRequest): Promise<ApiCredentialResource> {
+  const response = await apiClient.post<ApiCredentialResource>("/api/api-credentials", payload);
+  return response.data;
+}
+
+export async function updateApiCredential(id: number, payload: Partial<ApiCredentialRequest>): Promise<ApiCredentialResource> {
+  const response = await apiClient.patch<ApiCredentialResource>(`/api/api-credentials/${id}`, payload);
+  return response.data;
+}
+
+export async function deleteApiCredential(id: number): Promise<{ deleted: boolean }> {
+  const response = await apiClient.delete<{ deleted: boolean }>(`/api/api-credentials/${id}`);
+  return response.data;
+}
+
 export async function fetchSymbols(): Promise<SymbolResource[]> {
   const response = await apiClient.get<SymbolResource[]>("/api/symbols");
   return response.data;
@@ -310,6 +479,26 @@ export async function fetchRiskSettings(): Promise<RiskSetting[]> {
 
 export async function updateStrategy(id: number, payload: StrategyUpdateRequest): Promise<StrategyResource> {
   const response = await apiClient.patch<StrategyResource>(`/api/strategies/${id}`, payload);
+  return response.data;
+}
+
+export async function createStrategy(payload: StrategyCreateRequest): Promise<StrategyResource> {
+  const response = await apiClient.post<StrategyResource>("/api/strategies", payload);
+  return response.data;
+}
+
+export async function deleteStrategy(id: number): Promise<{ deleted: boolean }> {
+  const response = await apiClient.delete<{ deleted: boolean }>(`/api/strategies/${id}`);
+  return response.data;
+}
+
+export async function enableStrategy(id: number): Promise<StrategyResource> {
+  const response = await apiClient.post<StrategyResource>(`/api/strategies/${id}/enable`);
+  return response.data;
+}
+
+export async function disableStrategy(id: number): Promise<StrategyResource> {
+  const response = await apiClient.post<StrategyResource>(`/api/strategies/${id}/disable`);
   return response.data;
 }
 
@@ -345,6 +534,17 @@ export async function runBacktest(payload: BacktestRunRequest): Promise<Backtest
   return response.data;
 }
 
+export type BacktestReport = {
+  run: BacktestRun;
+  equity_curve: Array<Record<string, unknown>>;
+  metrics: Record<string, number>;
+};
+
+export async function fetchBacktestReport(id: number): Promise<BacktestReport> {
+  const response = await apiClient.get<BacktestReport>(`/api/backtests/${id}/report`);
+  return response.data;
+}
+
 export type AIProviderStatus = {
   provider: string;
   openai_available: boolean;
@@ -375,6 +575,21 @@ export async function fetchAIAnalyses(limit = 5): Promise<AIAnalysis[]> {
 
 export async function fetchAIAnalysis(id: number): Promise<AIAnalysis> {
   const response = await apiClient.get<AIAnalysis>(`/api/ai/analyses/${id}`);
+  return response.data;
+}
+
+export async function fetchAIModels(): Promise<AIModelResource[]> {
+  const response = await apiClient.get<AIModelResource[]>("/api/ai/models");
+  return response.data;
+}
+
+export async function trainAIModel(payload: AIModelTrainRequest): Promise<AIModelResource> {
+  const response = await apiClient.post<AIModelResource>("/api/ai/models/train", payload);
+  return response.data;
+}
+
+export async function predictAIModel(id: number): Promise<AIModelPrediction> {
+  const response = await apiClient.post<AIModelPrediction>(`/api/ai/models/${id}/predict`);
   return response.data;
 }
 
@@ -423,6 +638,30 @@ export async function fetchEquityCurve(): Promise<EquityCurve> {
 export async function fetchAuditEvents(filters: AuditEventFilters = {}): Promise<AuditEvent[]> {
   const response = await apiClient.get<AuditEvent[]>("/api/audit/events", {
     params: filters
+  });
+  return response.data;
+}
+
+export async function fetchNotifications(unreadOnly = false): Promise<NotificationResource[]> {
+  const response = await apiClient.get<NotificationResource[]>("/api/notifications", {
+    params: { unread_only: unreadOnly }
+  });
+  return response.data;
+}
+
+export async function createNotification(payload: NotificationCreateRequest): Promise<NotificationResource> {
+  const response = await apiClient.post<NotificationResource>("/api/notifications", payload);
+  return response.data;
+}
+
+export async function markNotificationRead(id: number): Promise<NotificationResource> {
+  const response = await apiClient.post<NotificationResource>(`/api/notifications/${id}/read`);
+  return response.data;
+}
+
+export async function fetchSystemLogs(limit = 100, level?: "info" | "warning" | "error"): Promise<SystemLogResource[]> {
+  const response = await apiClient.get<SystemLogResource[]>("/api/logs", {
+    params: { limit, level }
   });
   return response.data;
 }

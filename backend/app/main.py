@@ -62,7 +62,12 @@ async def require_api_key(
     if request.method == "OPTIONS" or not settings.api_key_auth_enabled:
         return await call_next(request)
 
-    public_paths = {"/", f"{settings.api_prefix}/health"}
+    public_paths = {
+        "/",
+        f"{settings.api_prefix}/health",
+        f"{settings.api_prefix}/auth/login",
+        f"{settings.api_prefix}/auth/register",
+    }
     if request.url.path in public_paths:
         return await call_next(request)
 
