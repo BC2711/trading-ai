@@ -9,7 +9,9 @@ class Settings(BaseSettings):
     docs_enabled: bool = True
     api_key: str | None = None
     jwt_secret: str = "change-me-in-production"
+    jwt_refresh_secret: str = "change-me-refresh-token-secret"
     access_token_expire_minutes: int = 120
+    refresh_token_expire_days: int = 7
     credential_encryption_secret: str = "change-me-in-production"
     allowed_hosts: list[str] = ["localhost", "127.0.0.1", "testserver", "backend"]
     cors_origins: list[str] = [
@@ -39,6 +41,15 @@ class Settings(BaseSettings):
     ollama_model: str = "llama3"
     local_model_path: str | None = None
 
+    # Websocket Settings
+    ws_ping_interval: int = 20
+    ws_ping_timeout: int = 10
+
+    # Baseline API abuse protection. Use an edge proxy/WAF for distributed production rate limiting.
+    rate_limit_enabled: bool = True
+    rate_limit_requests: int = 120
+    rate_limit_window_seconds: int = 60
+
     @property
     def is_production(self) -> bool:
         return self.environment.lower() == "production"
@@ -58,6 +69,8 @@ class Settings(BaseSettings):
                 raise ValueError("API_KEY is required when ENVIRONMENT=production")
             if self.jwt_secret == "change-me-in-production":
                 raise ValueError("JWT_SECRET must be changed when ENVIRONMENT=production")
+            if self.jwt_refresh_secret == "change-me-refresh-token-secret":
+                raise ValueError("JWT_REFRESH_SECRET must be changed when ENVIRONMENT=production")
             if self.credential_encryption_secret == "change-me-in-production":
                 raise ValueError("CREDENTIAL_ENCRYPTION_SECRET must be changed when ENVIRONMENT=production")
             if "*" in self.allowed_hosts:

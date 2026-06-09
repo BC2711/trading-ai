@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.security import decode_jwt
 from app.db.deps import get_db
 from app.models import User
+from app.services.admin import permissions_for_role
 
 bearer = HTTPBearer(auto_error=False)
 
@@ -31,6 +32,16 @@ def get_current_user(
 def require_role(*roles: str) -> Callable[[User], User]:
     def dependency(user: User = Depends(get_current_user)) -> User:
         if user.role not in roles:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+        return user
+
+    return dependency
+
+
+def require_permission(*permissions: str) -> Callable[[User], User]:
+    def dependency(user: User = Depends(get_current_user)) -> User:
+        granted = set(permissions_for_role(user.role))
+        if not set(permissions).issubset(granted):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
         return user
 

@@ -1,4 +1,5 @@
 import secrets
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
@@ -12,6 +13,8 @@ from app.api.routes import router as api_router
 from app.core.config import settings
 from app.core.monitoring import configure_monitoring
 from app.db.init_db import init_db
+
+_RATE_LIMIT_BUCKETS: dict[str, list[float]] = {}
 
 
 @asynccontextmanager
@@ -55,6 +58,34 @@ async def add_security_headers(
 
 
 @app.middleware("http")
+async def rate_limit_requests(
+    request: Request,
+    call_next: Callable[[Request], Awaitable[Response]],
+) -> Response:
+    if request.method == "OPTIONS" or not settings.rate_limit_enabled:
+        return await call_next(request)
+    if not request.url.path.startswith(settings.api_prefix):
+        return await call_next(request)
+
+    client_host = request.client.host if request.client else "unknown"
+    now = time.monotonic()
+    window_start = now - settings.rate_limit_window_seconds
+    bucket_key = f"{client_host}:{request.url.path}"
+    bucket = [timestamp for timestamp in _RATE_LIMIT_BUCKETS.get(bucket_key, []) if timestamp >= window_start]
+
+    if len(bucket) >= settings.rate_limit_requests:
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Rate limit exceeded"},
+            headers={"Retry-After": str(settings.rate_limit_window_seconds)},
+        )
+
+    bucket.append(now)
+    _RATE_LIMIT_BUCKETS[bucket_key] = bucket
+    return await call_next(request)
+
+
+@app.middleware("http")
 async def require_api_key(
     request: Request,
     call_next: Callable[[Request], Awaitable[Response]],
@@ -67,6 +98,7 @@ async def require_api_key(
         f"{settings.api_prefix}/health",
         f"{settings.api_prefix}/auth/login",
         f"{settings.api_prefix}/auth/register",
+        f"{settings.api_prefix}/auth/refresh",
     }
     if request.url.path in public_paths:
         return await call_next(request)

@@ -33,11 +33,28 @@ export type RegisterRequest = {
 export type TokenResponse = {
   access_token: string;
   token_type: string;
+  refresh_token?: string | null;
 };
 
 export async function login(payload: LoginRequest): Promise<TokenResponse> {
   const response = await apiClient.post<TokenResponse>("/api/auth/login", payload);
   localStorage.setItem("trading_ai_token", response.data.access_token);
+  if (response.data.refresh_token) {
+    localStorage.setItem("trading_ai_refresh_token", response.data.refresh_token);
+  }
+  return response.data;
+}
+
+export async function refreshAccessToken(): Promise<TokenResponse> {
+  const refreshToken = localStorage.getItem("trading_ai_refresh_token");
+  if (!refreshToken) {
+    throw new Error("Missing refresh token");
+  }
+  const response = await apiClient.post<TokenResponse>("/api/auth/refresh", { refresh_token: refreshToken });
+  localStorage.setItem("trading_ai_token", response.data.access_token);
+  if (response.data.refresh_token) {
+    localStorage.setItem("trading_ai_refresh_token", response.data.refresh_token);
+  }
   return response.data;
 }
 
@@ -48,6 +65,7 @@ export async function register(payload: RegisterRequest): Promise<UserResource> 
 
 export function logout() {
   localStorage.removeItem("trading_ai_token");
+  localStorage.removeItem("trading_ai_refresh_token");
 }
 
 export async function fetchSignals(): Promise<Signal[]> {
@@ -224,6 +242,22 @@ export type AIAnalysis = {
   backtest_summary: string | null;
   generated_at: string;
 };
+
+export type AIAgent = {
+  id: string;
+  name: "Analyst" | "News" | "Risk" | "Execution" | "Portfolio" | "Supervisor";
+  status: "idle" | "processing" | "alerting";
+  last_action: string;
+  metrics: {
+    tasks_completed: number;
+    accuracy?: number;
+  };
+};
+
+export async function fetchAgents(): Promise<AIAgent[]> {
+  const response = await apiClient.get<AIAgent[]>("/api/ai/agents");
+  return response.data;
+}
 
 export type PaperOrderRequest = {
   symbol: string;

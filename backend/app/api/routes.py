@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+import json
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 
 from app.db.deps import get_db
@@ -32,6 +33,7 @@ from app.schemas.trading import (
     EquityCurveResponse,
     NavigationItemRead,
     PortfolioSummaryResponse,
+    RefreshTokenRequest,
     RiskSettingRead,
     RiskSettingUpdate,
     SignalGenerateRequest,
@@ -51,8 +53,8 @@ from app.schemas.trading import (
     UserUpdate,
 )
 from app.core.config import settings
-from app.core.security import create_access_token
-from app.db.auth import get_current_user as require_current_user, require_role
+from app.core.security import create_access_token, create_refresh_token, decode_refresh_token
+from app.db.auth import get_current_user as require_current_user, require_permission, require_role
 from app.services.indicators.technical import moving_average_snapshot
 from app.models import User
 from app.services.repository import (
@@ -207,6 +209,32 @@ NAVIGATION_ITEMS = [
 ]
 
 
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: list[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: dict):
+        for connection in self.active_connections:
+            await connection.send_json(message)
+
+manager = ConnectionManager()
+
+@router.websocket("/ws/market-data")
+async def websocket_market_data(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+
 @router.get("/health", tags=["health"])
 def health_check() -> dict[str, str]:
     return {"status": "ok", "service": "trading-ai-backend"}
@@ -225,7 +253,27 @@ def post_login(payload: UserLogin, db: Session = Depends(get_db)) -> TokenRespon
     user = authenticate_user(db, payload.email, payload.password)
     if user is None:
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    return TokenResponse(access_token=create_access_token(str(user.id), user.role))
+    return TokenResponse(
+        access_token=create_access_token(str(user.id), user.role),
+        refresh_token=create_refresh_token(str(user.id), user.role),
+        token_type="bearer",
+    )
+
+@router.post("/auth/refresh", response_model=TokenResponse, tags=["auth"])
+def post_refresh_token(payload: RefreshTokenRequest, db: Session = Depends(get_db)) -> TokenResponse:
+    token_payload = decode_refresh_token(payload.refresh_token)
+    if not token_payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+
+    user = db.get(User, int(token_payload["sub"]))
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=401, detail="Inactive or unknown user")
+
+    return TokenResponse(
+        access_token=create_access_token(str(user.id), user.role),
+        refresh_token=create_refresh_token(str(user.id), user.role),
+        token_type="bearer",
+    )
 
 
 @router.get("/me", response_model=CurrentUserRead, tags=["auth"])
@@ -328,12 +376,19 @@ def delete_api_credential(
 
 
 @router.get("/symbols", response_model=list[SymbolRead], tags=["symbols"])
-def get_symbols(db: Session = Depends(get_db)) -> list[SymbolRead]:
+def get_symbols(
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("symbols:view")),
+) -> list[SymbolRead]:
     return [SymbolRead.model_validate(symbol) for symbol in list_symbols(db)]
 
 
 @router.post("/symbols", response_model=SymbolRead, tags=["symbols"])
-def post_symbol(payload: SymbolCreate, db: Session = Depends(get_db)) -> SymbolRead:
+def post_symbol(
+    payload: SymbolCreate,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("symbols:manage")),
+) -> SymbolRead:
     return SymbolRead.model_validate(create_symbol(db, payload))
 
 
@@ -343,6 +398,7 @@ def get_candles(
     timeframe: str = Query("15m"),
     limit: int = Query(200, ge=1, le=500),
     db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("market-data:view")),
 ) -> list[MarketCandleRead]:
     return [market_candle_to_schema(candle) for candle in list_candles(db, symbol, timeframe, limit)]
 
@@ -351,6 +407,7 @@ def get_candles(
 def post_market_data_sync(
     payload: MarketDataSyncRequest,
     db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("market-data:sync")),
 ) -> MarketDataSyncResponse:
     try:
         results = sync_market_data(db, payload.symbols, payload.timeframe, payload.limit)
@@ -371,6 +428,7 @@ def post_market_data_sync(
 def post_market_data_refresh(
     payload: MarketDataRefreshRequest | None = None,
     db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("market-data:sync")),
 ) -> MarketDataRefreshResponse:
     payload = payload or MarketDataRefreshRequest()
     return run_market_data_refresh(
@@ -383,7 +441,10 @@ def post_market_data_refresh(
 
 
 @router.post("/market-data/refresh-task", response_model=MarketDataTaskResponse, tags=["market-data"])
-def post_market_data_refresh_task(payload: MarketDataRefreshRequest | None = None) -> MarketDataTaskResponse:
+def post_market_data_refresh_task(
+    payload: MarketDataRefreshRequest | None = None,
+    _user: User = Depends(require_permission("market-data:sync")),
+) -> MarketDataTaskResponse:
     payload = payload or MarketDataRefreshRequest()
     task = refresh_market_data.delay(
         symbols=payload.symbols,
@@ -395,7 +456,9 @@ def post_market_data_refresh_task(payload: MarketDataRefreshRequest | None = Non
 
 
 @router.get("/market-data/schedule", response_model=MarketDataScheduleResponse, tags=["market-data"])
-def get_market_data_schedule() -> MarketDataScheduleResponse:
+def get_market_data_schedule(
+    _user: User = Depends(require_permission("market-data:view")),
+) -> MarketDataScheduleResponse:
     return MarketDataScheduleResponse(
         enabled=True,
         job_id="market-data-sync",
@@ -408,7 +471,10 @@ def get_market_data_schedule() -> MarketDataScheduleResponse:
 
 
 @router.get("/signals", response_model=list[SignalRead], tags=["signals"])
-def get_signals(db: Session = Depends(get_db)) -> list[SignalRead]:
+def get_signals(
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("signals:view")),
+) -> list[SignalRead]:
     return [signal_to_schema(signal) for signal in list_signals(db)]
 
 
@@ -416,13 +482,17 @@ def get_signals(db: Session = Depends(get_db)) -> list[SignalRead]:
 def post_generate_signals(
     payload: SignalGenerateRequest | None = None,
     db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("signals:generate")),
 ) -> list[SignalRead]:
     payload = payload or SignalGenerateRequest()
     return [signal_to_schema(signal) for signal in generate_signals(db, payload.symbol, payload.timeframe)]
 
 
 @router.get("/strategies", response_model=list[StrategyRead], tags=["strategies"])
-def get_strategies(db: Session = Depends(get_db)) -> list[StrategyRead]:
+def get_strategies(
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("strategies:view")),
+) -> list[StrategyRead]:
     return [StrategyRead.model_validate(strategy) for strategy in list_strategies(db)]
 
 
@@ -440,6 +510,7 @@ def patch_strategy(
     strategy_id: int,
     payload: StrategyUpdate,
     db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("strategies:update")),
 ) -> StrategyRead:
     strategy = update_strategy(db, strategy_id, payload)
     if strategy is None:
@@ -484,7 +555,10 @@ def delete_strategy_endpoint(
 
 
 @router.get("/risk-settings", response_model=list[RiskSettingRead], tags=["risk"])
-def get_risk_settings(db: Session = Depends(get_db)) -> list[RiskSettingRead]:
+def get_risk_settings(
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("risk-settings:view")),
+) -> list[RiskSettingRead]:
     return [RiskSettingRead.model_validate(ensure_default_risk_settings(db))]
 
 
@@ -493,6 +567,7 @@ def patch_risk_settings(
     risk_setting_id: int,
     payload: RiskSettingUpdate,
     db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("risk-settings:update")),
 ) -> RiskSettingRead:
     settings = update_risk_settings(db, risk_setting_id, payload)
     if settings is None:
@@ -505,6 +580,7 @@ def patch_risk_settings(
 def get_backtests(
     limit: int = Query(10, ge=1, le=50),
     db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("backtests:view")),
 ) -> list[BacktestRunRead]:
     return [backtest_to_schema(run) for run in list_backtest_runs(db, limit)]
 
@@ -513,6 +589,7 @@ def get_backtests(
 def post_backtest_run(
     payload: BacktestRunRequest,
     db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("backtests:run")),
 ) -> BacktestRunRead:
     try:
         run = run_backtest(db, payload)
@@ -523,7 +600,11 @@ def post_backtest_run(
 
 
 @router.get("/backtests/{run_id}/report", response_model=BacktestReport, tags=["backtests"])
-def get_backtest_report(run_id: int, db: Session = Depends(get_db)) -> BacktestReport:
+def get_backtest_report(
+    run_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("backtests:view")),
+) -> BacktestReport:
     run = get_backtest_run(db, run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Backtest not found")
@@ -547,6 +628,7 @@ def get_backtest_report(run_id: int, db: Session = Depends(get_db)) -> BacktestR
 def post_ai_analyze_signal(
     payload: AIAnalysisRequest,
     db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("ai-analyses:create")),
 ) -> AIAnalysisResponse:
     try:
         return analyze_signal(db, payload)
@@ -558,12 +640,15 @@ def post_ai_analyze_signal(
 def get_ai_analyses(
     limit: int = Query(10, ge=1, le=50),
     db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("ai-analyses:view")),
 ) -> list[AIAnalysisResponse]:
     return [analysis_to_response(record) for record in list_ai_analyses(db, limit)]
 
 
 @router.get("/ai/provider", response_model=AIProviderStatusResponse, tags=["ai"])
-def get_ai_provider_status() -> AIProviderStatusResponse:
+def get_ai_provider_status(
+    _user: User = Depends(require_permission("ai-models:view")),
+) -> AIProviderStatusResponse:
     available = ["rules"]
     if settings.openai_api_key:
         available.append("openai")
@@ -580,7 +665,10 @@ def get_ai_provider_status() -> AIProviderStatusResponse:
 
 
 @router.patch("/ai/provider", response_model=AIProviderStatusResponse, tags=["ai"])
-def patch_ai_provider(payload: AIProviderStatusRequest) -> AIProviderStatusResponse:
+def patch_ai_provider(
+    payload: AIProviderStatusRequest,
+    _user: User = Depends(require_permission("ai-provider:manage")),
+) -> AIProviderStatusResponse:
     provider = payload.provider.lower()
     if provider not in {"rules", "openai", "ollama", "local-llama"}:
         raise HTTPException(status_code=400, detail="Unsupported AI provider")
@@ -599,6 +687,7 @@ def patch_ai_provider(payload: AIProviderStatusRequest) -> AIProviderStatusRespo
 def get_ai_analysis_by_id(
     analysis_id: int,
     db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("ai-analyses:view")),
 ) -> AIAnalysisResponse:
     record = get_ai_analysis(db, analysis_id)
     if record is None:
@@ -608,7 +697,10 @@ def get_ai_analysis_by_id(
 
 
 @router.get("/ai/models", response_model=list[AIModelRead], tags=["ai"])
-def get_ai_models(db: Session = Depends(get_db)) -> list[AIModelRead]:
+def get_ai_models(
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("ai-models:view")),
+) -> list[AIModelRead]:
     return [AIModelRead.model_validate(model) for model in list_ai_models(db)]
 
 
@@ -625,7 +717,11 @@ def post_ai_model_train(
 
 
 @router.post("/ai/models/{model_id}/predict", response_model=AIModelPrediction, tags=["ai"])
-def post_ai_model_predict(model_id: int, db: Session = Depends(get_db)) -> AIModelPrediction:
+def post_ai_model_predict(
+    model_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("ai-models:view")),
+) -> AIModelPrediction:
     try:
         return AIModelPrediction.model_validate(predict_ai_model(db, model_id))
     except ValueError as exc:
@@ -637,6 +733,7 @@ def get_orders(
     limit: int = Query(20, ge=1, le=100),
     status: str | None = Query(None, pattern="^(filled|rejected|cancelled|all)$"),
     db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("orders:view")),
 ) -> list[PaperOrderRead]:
     return [order_to_schema(order) for order in list_paper_orders(db, limit, status)]
 
@@ -645,6 +742,7 @@ def get_orders(
 def post_paper_order(
     payload: PaperOrderRequest,
     db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("orders:create")),
 ) -> PaperOrderRead:
     try:
         return order_to_schema(create_paper_order(db, payload))
@@ -656,6 +754,7 @@ def post_paper_order(
 def post_cancel_order(
     order_id: int,
     db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("orders:manage")),
 ) -> PaperOrderRead:
     try:
         order = cancel_paper_order(db, order_id)
@@ -672,6 +771,7 @@ def post_cancel_order(
 def get_positions(
     status: str = Query("open", pattern="^(open|closed|all)$"),
     db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("positions:view")),
 ) -> list[PaperPositionRead]:
     return [position_to_schema(position) for position in list_paper_positions(db, status)]
 
@@ -680,6 +780,7 @@ def get_positions(
 def post_close_position(
     position_id: int,
     db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("positions:manage")),
 ) -> PaperPositionRead:
     try:
         position = close_paper_position(db, position_id)
@@ -693,12 +794,18 @@ def post_close_position(
 
 
 @router.get("/portfolio/summary", response_model=PortfolioSummaryResponse, tags=["portfolio"])
-def get_portfolio_summary_endpoint(db: Session = Depends(get_db)) -> PortfolioSummaryResponse:
+def get_portfolio_summary_endpoint(
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("portfolio:view")),
+) -> PortfolioSummaryResponse:
     return get_portfolio_summary(db)
 
 
 @router.get("/portfolio/equity-curve", response_model=EquityCurveResponse, tags=["portfolio"])
-def get_equity_curve_endpoint(db: Session = Depends(get_db)) -> EquityCurveResponse:
+def get_equity_curve_endpoint(
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("portfolio:view")),
+) -> EquityCurveResponse:
     return get_equity_curve(db)
 
 
@@ -709,6 +816,7 @@ def get_audit_events(
     severity: str | None = Query(None, pattern="^(info|warning|error)$"),
     entity_type: str | None = Query(None),
     db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("audit:view")),
 ) -> list[AuditEventRead]:
     return [
         audit_event_to_schema(event)
@@ -726,6 +834,7 @@ def get_audit_events(
 def get_notifications(
     unread_only: bool = Query(False),
     db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("notifications:view")),
 ) -> list[NotificationRead]:
     return [NotificationRead.model_validate(notification) for notification in list_notifications(db, unread_only)]
 
@@ -740,7 +849,11 @@ def post_notification(
 
 
 @router.post("/notifications/{notification_id}/read", response_model=NotificationRead, tags=["notifications"])
-def post_notification_read(notification_id: int, db: Session = Depends(get_db)) -> NotificationRead:
+def post_notification_read(
+    notification_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("notifications:view")),
+) -> NotificationRead:
     notification = mark_notification_read(db, notification_id)
     if notification is None:
         raise HTTPException(status_code=404, detail="Notification not found")
@@ -752,12 +865,15 @@ def get_logs(
     limit: int = Query(100, ge=1, le=500),
     level: str | None = Query(None, pattern="^(info|warning|error)$"),
     db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("logs:view")),
 ) -> list[SystemLogRead]:
     return [SystemLogRead.model_validate(log) for log in list_system_logs(db, limit, level)]
 
 
 @router.get("/indicators/preview", tags=["indicators"])
-def indicator_preview() -> dict[str, float]:
+def indicator_preview(
+    _user: User = Depends(require_permission("market-data:view")),
+) -> dict[str, float]:
     return moving_average_snapshot([101.2, 102.4, 101.9, 103.1, 104.8, 104.2])
 
 

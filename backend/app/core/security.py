@@ -32,22 +32,28 @@ def verify_password(password: str, hashed_password: str) -> bool:
 
 def create_access_token(subject: str, role: str) -> str:
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
-    payload = {"sub": subject, "role": role, "exp": int(expires_at.timestamp())}
+    payload = {"sub": subject, "role": role, "typ": "access", "exp": int(expires_at.timestamp())}
     return encode_jwt(payload)
 
 
-def encode_jwt(payload: dict[str, Any]) -> str:
+def create_refresh_token(subject: str, role: str) -> str:
+    expires_at = datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expire_days)
+    payload = {"sub": subject, "role": role, "typ": "refresh", "exp": int(expires_at.timestamp())}
+    return encode_jwt(payload, secret=settings.jwt_refresh_secret)
+
+
+def encode_jwt(payload: dict[str, Any], secret: str | None = None) -> str:
     header = {"alg": "HS256", "typ": "JWT"}
     header_b64 = b64json(header)
     payload_b64 = b64json(payload)
-    signature = sign(f"{header_b64}.{payload_b64}")
+    signature = sign(f"{header_b64}.{payload_b64}", secret=secret)
     return f"{header_b64}.{payload_b64}.{signature}"
 
 
-def decode_jwt(token: str) -> dict[str, Any] | None:
+def decode_jwt(token: str, secret: str | None = None) -> dict[str, Any] | None:
     try:
         header_b64, payload_b64, signature = token.split(".", 2)
-        expected = sign(f"{header_b64}.{payload_b64}")
+        expected = sign(f"{header_b64}.{payload_b64}", secret=secret)
         if not hmac.compare_digest(signature, expected):
             return None
         payload = json.loads(base64.urlsafe_b64decode(pad_b64(payload_b64)).decode("utf-8"))
@@ -55,6 +61,13 @@ def decode_jwt(token: str) -> dict[str, Any] | None:
         return None
 
     if int(payload.get("exp", 0)) < int(datetime.now(timezone.utc).timestamp()):
+        return None
+    return payload
+
+
+def decode_refresh_token(token: str) -> dict[str, Any] | None:
+    payload = decode_jwt(token, secret=settings.jwt_refresh_secret)
+    if not payload or payload.get("typ") != "refresh":
         return None
     return payload
 
@@ -90,8 +103,9 @@ def b64json(value: dict[str, Any]) -> str:
     return base64.urlsafe_b64encode(json.dumps(value, separators=(",", ":")).encode("utf-8")).decode("utf-8").rstrip("=")
 
 
-def sign(value: str) -> str:
-    digest = hmac.new(settings.jwt_secret.encode("utf-8"), value.encode("utf-8"), hashlib.sha256).digest()
+def sign(value: str, secret: str | None = None) -> str:
+    signing_secret = secret or settings.jwt_secret
+    digest = hmac.new(signing_secret.encode("utf-8"), value.encode("utf-8"), hashlib.sha256).digest()
     return base64.urlsafe_b64encode(digest).decode("utf-8").rstrip("=")
 
 

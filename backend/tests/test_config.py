@@ -33,8 +33,20 @@ def test_production_rejects_wildcard_hosts(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.setenv("API_KEY", "prod-secret")
     monkeypatch.setenv("JWT_SECRET", "prod-jwt-secret")
+    monkeypatch.setenv("JWT_REFRESH_SECRET", "prod-refresh-secret")
     monkeypatch.setenv("CREDENTIAL_ENCRYPTION_SECRET", "prod-credential-secret")
     monkeypatch.setenv("ALLOWED_HOSTS", '["*"]')
 
     with pytest.raises(ValidationError, match="ALLOWED_HOSTS cannot contain"):
+        Settings()
+
+
+def test_production_requires_refresh_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("API_KEY", "prod-secret")
+    monkeypatch.setenv("JWT_SECRET", "prod-jwt-secret")
+    monkeypatch.setenv("JWT_REFRESH_SECRET", "change-me-refresh-token-secret")
+    monkeypatch.setenv("CREDENTIAL_ENCRYPTION_SECRET", "prod-credential-secret")
+
+    with pytest.raises(ValidationError, match="JWT_REFRESH_SECRET must be changed"):
         Settings()

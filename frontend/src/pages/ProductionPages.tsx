@@ -66,7 +66,7 @@ export function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) 
           </div>
           <h1 className="text-2xl font-black text-slate-950 dark:text-white">Trading AI Access</h1>
           <p className="mt-2 text-sm text-slate-500 dark:text-white/55">
-            {mode === "login" ? "Sign in to manage the trading workspace." : "Create the first admin or a trader account."}
+            {mode === "login" ? "Sign in to manage the trading workspace." : "Create the first admin account, or register a trader account after setup."}
           </p>
         </div>
         {authMutation.isError ? <Alert tone="error">Authentication failed. Check your details and try again.</Alert> : null}

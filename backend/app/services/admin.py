@@ -10,8 +10,11 @@ from app.services.audit import record_event
 ADMIN_PERMISSIONS = [
     "users:manage",
     "api-credentials:manage",
+    "symbols:manage",
+    "market-data:sync",
     "strategies:manage",
     "risk-settings:manage",
+    "ai-provider:manage",
     "ai-models:manage",
     "orders:manage",
     "positions:manage",
@@ -21,8 +24,13 @@ ADMIN_PERMISSIONS = [
 
 TRADER_PERMISSIONS = [
     "dashboard:view",
+    "symbols:view",
+    "market-data:view",
     "portfolio:view",
     "signals:view",
+    "signals:generate",
+    "ai-analyses:view",
+    "ai-analyses:create",
     "orders:view",
     "orders:create",
     "positions:view",
@@ -50,7 +58,7 @@ def register_user(db: Session, payload: UserCreate) -> User:
         raise ValueError("Email is already registered")
 
     first_user = db.scalar(select(User.id).limit(1)) is None
-    role = "admin" if first_user else payload.role
+    role = "admin" if first_user else "trader"
     user = User(
         email=email,
         full_name=payload.full_name,

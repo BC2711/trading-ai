@@ -56,15 +56,21 @@ Before running with `ENVIRONMENT=production`, set these values explicitly:
 ```env
 ENVIRONMENT=production
 API_KEY=replace-with-a-long-random-secret
+JWT_SECRET=replace-with-a-long-random-jwt-secret
+JWT_REFRESH_SECRET=replace-with-a-different-long-random-refresh-secret
+CREDENTIAL_ENCRYPTION_SECRET=replace-with-a-long-random-encryption-secret
 ALLOWED_HOSTS=["your-domain.com","api.your-domain.com"]
 CORS_ORIGINS=["https://your-domain.com"]
 DATABASE_URL=postgresql+psycopg://user:password@db-host:5432/trading
 REDIS_URL=redis://redis-host:6379/0
 CELERY_BROKER_URL=redis://redis-host:6379/1
 CELERY_RESULT_BACKEND=redis://redis-host:6379/2
+RATE_LIMIT_ENABLED=true
+RATE_LIMIT_REQUESTS=120
+RATE_LIMIT_WINDOW_SECONDS=60
 ```
 
-Production mode fails fast if `API_KEY` is missing or wildcard hosts/origins are configured. API routes under `/api/*` require the `X-API-Key` header, except `/api/health`, which stays public for load balancers. The frontend can send that key by setting `VITE_API_KEY`, but for public internet deployments prefer serving the dashboard behind a private network, VPN, SSO proxy, or a backend session-based auth layer.
+Production mode fails fast if `API_KEY`, JWT secrets, credential encryption secret, or host/origin allowlists are unsafe. API routes under `/api/*` require the `X-API-Key` header when configured, except `/api/health` and auth endpoints. Trading and administration routes also require a bearer token with the required permission. The first registered user is promoted to admin; later public registrations are traders until an admin changes their role.
 
 Run database migrations before deploying new backend code:
 
