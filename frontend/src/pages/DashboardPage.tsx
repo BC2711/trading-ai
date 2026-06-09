@@ -3,7 +3,6 @@ import {
   Activity,
   ArrowUpRight,
   Bot,
-  Calendar,
   CircleDollarSign,
   Clock3,
   Download,
@@ -11,10 +10,10 @@ import {
   Play,
   ShieldAlert,
   ShieldCheck,
+  SlidersHorizontal,
   Sparkles,
   Target,
   TrendingUp,
-  Wand2
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
@@ -271,6 +270,28 @@ export function DashboardPage() {
     }
   });
 
+  const resetSettingsForm = () => {
+    if (activeStrategy) {
+      setStrategyForm({
+        name: activeStrategy.name,
+        timeframe: activeStrategy.timeframe,
+        status: activeStrategy.status,
+        description: activeStrategy.description
+      });
+    }
+
+    if (riskSettings) {
+      setRiskForm({
+        maxRiskPerTrade: (riskSettings.max_risk_per_trade * 100).toFixed(1),
+        maxDailyLoss: (riskSettings.max_daily_loss * 100).toFixed(1),
+        maxOpenTrades: String(riskSettings.max_open_trades),
+        maxSymbolExposure: (riskSettings.max_symbol_exposure * 100).toFixed(1)
+      });
+    }
+
+    setStrategyOpen(false);
+  };
+
   const metrics = [
     {
       label: `${selectedSymbol} Last Close`,
@@ -364,8 +385,8 @@ export function DashboardPage() {
             <Button icon={Play} loading={backtestMutation.isPending} onClick={() => backtestMutation.mutate()}>
               Run backtest
             </Button>
-            <Button variant="secondary" icon={Wand2} onClick={() => setStrategyOpen(true)}>
-              Tune model
+            <Button variant="secondary" icon={SlidersHorizontal} onClick={() => setStrategyOpen(true)}>
+              Strategy controls
             </Button>
           </div>
         </div>
@@ -675,49 +696,144 @@ export function DashboardPage() {
 
       <section className="grid gap-4 xl:grid-cols-3 xl:gap-6">
         <Card className="p-4 sm:p-5 xl:col-span-2">
-          <div className="mb-5 flex items-center justify-between">
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-black text-slate-950 dark:text-white">Backend Strategy Controls</h2>
               <p className="text-sm font-medium text-slate-500 dark:text-white/50">
-                Current defaults from `/api/strategies` and `/api/risk-settings`
+                {strategyOpen
+                  ? "Edit live strategy defaults and risk limits used by future backtests"
+                  : "Current defaults from `/api/strategies` and `/api/risk-settings`"}
               </p>
             </div>
-            <Calendar size={18} className="text-slate-400 dark:text-white/40" aria-hidden />
+            {strategyOpen ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button variant="ghost" onClick={resetSettingsForm}>
+                  Cancel
+                </Button>
+                <Button
+                  icon={Play}
+                  loading={settingsMutation.isPending}
+                  disabled={!activeStrategy || !riskSettings}
+                  onClick={() => settingsMutation.mutate()}
+                >
+                  Save controls
+                </Button>
+              </div>
+            ) : (
+              <Button variant="secondary" icon={SlidersHorizontal} onClick={() => setStrategyOpen(true)}>
+                Edit controls
+              </Button>
+            )}
           </div>
-          <div className="grid gap-4 md:grid-cols-2">
-            <Input label="Strategy name" value={activeStrategy?.name ?? ""} readOnly placeholder="Loading strategy" />
-            <Select
-              label="Market universe"
-              options={(symbolsQuery.data?.map((symbol) => symbol.symbol) ?? ["BTCUSDT", "ETHUSDT"])}
-              value={selectedSymbol}
-              disabled
-            />
-            <Input
-              label="Risk per trade"
-              value={riskSettings ? `${(riskSettings.max_risk_per_trade * 100).toFixed(1)}%` : ""}
-              readOnly
-              placeholder="Loading risk"
-            />
-            <Select
-              label="Refresh cadence"
-              options={[scheduleQuery.data ? `${scheduleQuery.data.interval_minutes} minutes` : "Loading"]}
-              value={scheduleQuery.data ? `${scheduleQuery.data.interval_minutes} minutes` : "Loading"}
-              disabled
-            />
-            <div className="md:col-span-2">
-              <Textarea
-                label="Strategy description"
-                value={activeStrategy?.description ?? ""}
-                readOnly
-                placeholder="Loading strategy description"
+
+          {strategyOpen ? (
+            <div className="grid gap-4">
+              <Alert tone="info">Saved controls are applied to future backtests and dashboard risk summaries.</Alert>
+              <div className="grid gap-4 md:grid-cols-2">
+                <Input
+                  label="Strategy name"
+                  value={strategyForm.name}
+                  onChange={(event) => setStrategyForm((current) => ({ ...current, name: event.target.value }))}
+                  placeholder="Strategy name"
+                />
+                <Select
+                  label="Strategy timeframe"
+                  options={["15m", "1h", "4h", "1d"]}
+                  value={strategyForm.timeframe}
+                  onChange={(event) => setStrategyForm((current) => ({ ...current, timeframe: event.target.value }))}
+                />
+                <Select
+                  label="Strategy status"
+                  options={["active", "draft", "paused"]}
+                  value={strategyForm.status}
+                  onChange={(event) => setStrategyForm((current) => ({ ...current, status: event.target.value }))}
+                />
+                <Input
+                  label="Max open trades"
+                  type="number"
+                  min="1"
+                  max="50"
+                  value={riskForm.maxOpenTrades}
+                  onChange={(event) => setRiskForm((current) => ({ ...current, maxOpenTrades: event.target.value }))}
+                />
+                <Input
+                  label="Risk per trade (%)"
+                  type="number"
+                  min="0.1"
+                  max="100"
+                  step="0.1"
+                  value={riskForm.maxRiskPerTrade}
+                  onChange={(event) => setRiskForm((current) => ({ ...current, maxRiskPerTrade: event.target.value }))}
+                />
+                <Input
+                  label="Daily loss limit (%)"
+                  type="number"
+                  min="0.1"
+                  max="100"
+                  step="0.1"
+                  value={riskForm.maxDailyLoss}
+                  onChange={(event) => setRiskForm((current) => ({ ...current, maxDailyLoss: event.target.value }))}
+                />
+                <Input
+                  label="Symbol exposure (%)"
+                  type="number"
+                  min="0.1"
+                  max="100"
+                  step="0.1"
+                  value={riskForm.maxSymbolExposure}
+                  onChange={(event) => setRiskForm((current) => ({ ...current, maxSymbolExposure: event.target.value }))}
+                />
+                <Select
+                  label="Market universe"
+                  options={(symbolsQuery.data?.map((symbol) => symbol.symbol) ?? ["BTCUSDT", "ETHUSDT"])}
+                  value={selectedSymbol}
+                  disabled
+                />
+                <div className="md:col-span-2">
+                  <Textarea
+                    label="Strategy description"
+                    value={strategyForm.description}
+                    onChange={(event) => setStrategyForm((current) => ({ ...current, description: event.target.value }))}
+                  />
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2">
+              <Input label="Strategy name" value={activeStrategy?.name ?? ""} readOnly placeholder="Loading strategy" />
+              <Select
+                label="Market universe"
+                options={(symbolsQuery.data?.map((symbol) => symbol.symbol) ?? ["BTCUSDT", "ETHUSDT"])}
+                value={selectedSymbol}
+                disabled
               />
+              <Input
+                label="Risk per trade"
+                value={riskSettings ? `${(riskSettings.max_risk_per_trade * 100).toFixed(1)}%` : ""}
+                readOnly
+                placeholder="Loading risk"
+              />
+              <Select
+                label="Refresh cadence"
+                options={[scheduleQuery.data ? `${scheduleQuery.data.interval_minutes} minutes` : "Loading"]}
+                value={scheduleQuery.data ? `${scheduleQuery.data.interval_minutes} minutes` : "Loading"}
+                disabled
+              />
+              <div className="md:col-span-2">
+                <Textarea
+                  label="Strategy description"
+                  value={activeStrategy?.description ?? ""}
+                  readOnly
+                  placeholder="Loading strategy description"
+                />
+              </div>
+              <ToggleSwitch label="Auto-pause on anomaly" checked />
+              <ToggleSwitch label="Send executive digest" />
+              <div className="md:col-span-2">
+                <FileUpload />
+              </div>
             </div>
-            <ToggleSwitch label="Auto-pause on anomaly" checked />
-            <ToggleSwitch label="Send executive digest" />
-            <div className="md:col-span-2">
-              <FileUpload />
-            </div>
-          </div>
+          )}
         </Card>
 
         <Card className="p-4 sm:p-5">
@@ -853,91 +969,6 @@ export function DashboardPage() {
           />
         </Card>
       ) : null}
-
-      <Modal
-        open={strategyOpen}
-        onClose={() => setStrategyOpen(false)}
-        title="Tune Model"
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => setStrategyOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              icon={Play}
-              loading={settingsMutation.isPending}
-              disabled={!activeStrategy || !riskSettings}
-              onClick={() => settingsMutation.mutate()}
-            >
-              Apply tuning
-            </Button>
-          </>
-        }
-      >
-        <div className="grid gap-4">
-          <Alert tone="info">Saved settings are used by future backtests and dashboard risk summaries.</Alert>
-          <Input
-            label="Strategy name"
-            value={strategyForm.name}
-            onChange={(event) => setStrategyForm((current) => ({ ...current, name: event.target.value }))}
-            placeholder="Strategy name"
-          />
-          <Select
-            label="Strategy timeframe"
-            options={["15m", "1h", "4h", "1d"]}
-            value={strategyForm.timeframe}
-            onChange={(event) => setStrategyForm((current) => ({ ...current, timeframe: event.target.value }))}
-          />
-          <Select
-            label="Strategy status"
-            options={["active", "draft", "paused"]}
-            value={strategyForm.status}
-            onChange={(event) => setStrategyForm((current) => ({ ...current, status: event.target.value }))}
-          />
-          <Textarea
-            label="Strategy description"
-            value={strategyForm.description}
-            onChange={(event) => setStrategyForm((current) => ({ ...current, description: event.target.value }))}
-          />
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Input
-              label="Risk per trade (%)"
-              type="number"
-              min="0.1"
-              max="100"
-              step="0.1"
-              value={riskForm.maxRiskPerTrade}
-              onChange={(event) => setRiskForm((current) => ({ ...current, maxRiskPerTrade: event.target.value }))}
-            />
-            <Input
-              label="Daily loss limit (%)"
-              type="number"
-              min="0.1"
-              max="100"
-              step="0.1"
-              value={riskForm.maxDailyLoss}
-              onChange={(event) => setRiskForm((current) => ({ ...current, maxDailyLoss: event.target.value }))}
-            />
-            <Input
-              label="Max open trades"
-              type="number"
-              min="1"
-              max="50"
-              value={riskForm.maxOpenTrades}
-              onChange={(event) => setRiskForm((current) => ({ ...current, maxOpenTrades: event.target.value }))}
-            />
-            <Input
-              label="Symbol exposure (%)"
-              type="number"
-              min="0.1"
-              max="100"
-              step="0.1"
-              value={riskForm.maxSymbolExposure}
-              onChange={(event) => setRiskForm((current) => ({ ...current, maxSymbolExposure: event.target.value }))}
-            />
-          </div>
-        </div>
-      </Modal>
 
       <Modal
         open={analysisOpen}

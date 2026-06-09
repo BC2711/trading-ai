@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
 import { ChevronDown, Filter, SlidersHorizontal } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
 import { cn } from "../../utils/cn";
@@ -24,6 +25,7 @@ type DataTableProps<T extends { id: string }> = {
   loading?: boolean;
   emptyTitle?: string;
   emptyMessage?: string;
+  pageSize?: number;
 };
 
 export function DataTable<T extends { id: string }>({
@@ -33,8 +35,20 @@ export function DataTable<T extends { id: string }>({
   rows,
   loading = false,
   emptyTitle = "No rows found",
-  emptyMessage = "Try adjusting filters or connect a signal source."
+  emptyMessage = "Try adjusting filters or connect a signal source.",
+  pageSize = 8
 }: DataTableProps<T>) {
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+  const startIndex = (page - 1) * pageSize;
+  const visibleRows = useMemo(() => rows.slice(startIndex, startIndex + pageSize), [pageSize, rows, startIndex]);
+  const startItem = rows.length > 0 ? startIndex + 1 : 0;
+  const endItem = Math.min(rows.length, startIndex + visibleRows.length);
+
+  useEffect(() => {
+    setPage((currentPage) => Math.min(currentPage, totalPages));
+  }, [totalPages]);
+
   return (
     <Card className="p-0">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 p-4">
@@ -83,7 +97,7 @@ export function DataTable<T extends { id: string }>({
                     </td>
                   </tr>
                 ))
-              : rows.map((row) => (
+              : visibleRows.map((row) => (
                   <motion.tr
                     key={row.id}
                     initial={{ opacity: 0 }}
@@ -110,7 +124,15 @@ export function DataTable<T extends { id: string }>({
         </table>
       </div>
       {!loading && rows.length === 0 ? <EmptyState title={emptyTitle} message={emptyMessage} /> : null}
-      <Pagination totalItems={rows.length} />
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        totalItems={rows.length}
+        startItem={startItem}
+        endItem={endItem}
+        onPrevious={() => setPage((currentPage) => Math.max(1, currentPage - 1))}
+        onNext={() => setPage((currentPage) => Math.min(totalPages, currentPage + 1))}
+      />
     </Card>
   );
 }
