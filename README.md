@@ -178,7 +178,7 @@ Supported model types:
 - `gru`
 - `transformer`
 
-`xgboost` uses XGBoost when available. `lightgbm` uses LightGBM when installed and otherwise falls back to sklearn histogram gradient boosting. `lstm`, `gru`, and `transformer` use local sklearn MLP adapters unless a dedicated deep-learning runtime is added later.
+`xgboost` uses XGBoost, `lightgbm` uses native LightGBM, and `lstm`, `gru`, and `transformer` use native PyTorch sequence classifiers when the installed backend requirements are present. TensorFlow is included in the backend ML dependency set for future TensorFlow/Keras model adapters. If a heavyweight runtime is not installed in a local development environment, the service degrades to sklearn-compatible fallback models instead of preventing the API from starting.
 
 Core endpoints:
 

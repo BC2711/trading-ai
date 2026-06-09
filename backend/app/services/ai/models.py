@@ -1,11 +1,14 @@
 from pathlib import Path
 from typing import Any
+import importlib.util
 import pickle
 
 from sklearn.ensemble import GradientBoostingClassifier, HistGradientBoostingClassifier, RandomForestClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
+
+from app.services.ai.torch_models import TorchSequenceClassifier
 
 try:
     from xgboost import XGBClassifier
@@ -47,20 +50,36 @@ class ModelService:
             return HistGradientBoostingClassifier(random_state=42), {"runtime_adapter": "sklearn.hist_gradient_boosting_fallback", **defaults}
 
         if normalized in {"lstm", "gru", "transformer"}:
+            if is_package_available("torch"):
+                defaults = {
+                    "architecture": normalized,
+                    "hidden_dim": 64 if normalized != "transformer" else 96,
+                    "num_layers": 1,
+                    "dropout": 0.1,
+                    "sequence_length": 12,
+                    "epochs": 20,
+                    "batch_size": 32,
+                    "learning_rate": 0.001,
+                    "random_state": 42,
+                    "num_heads": 4,
+                }
+                defaults.update({key: value for key, value in params.items() if key in defaults})
+                return TorchSequenceClassifier(**defaults), {"runtime_adapter": f"pytorch.{normalized}", **defaults}
+
             hidden_layers = {
                 "lstm": (64, 32),
                 "gru": (48, 24),
                 "transformer": (96, 48, 24),
             }[normalized]
             defaults = {"hidden_layer_sizes": hidden_layers, "max_iter": 500, "random_state": 42, "early_stopping": True}
-            defaults.update(params)
+            defaults.update({key: value for key, value in params.items() if key in defaults})
             model = Pipeline(
                 [
                     ("scaler", StandardScaler()),
                     ("classifier", MLPClassifier(**defaults)),
                 ]
             )
-            return model, {"runtime_adapter": f"sklearn.mlp_{normalized}_fallback", **defaults}
+            return model, {"runtime_adapter": f"sklearn.mlp_{normalized}_fallback_missing_torch", **defaults}
 
         raise ValueError(f"Unsupported model type: {model_type}")
 
@@ -82,3 +101,7 @@ def normalize_model_type(model_type: str) -> str:
     if normalized not in SUPPORTED_MODEL_TYPES:
         raise ValueError(f"Unsupported model type: {model_type}")
     return normalized
+
+
+def is_package_available(package_name: str) -> bool:
+    return importlib.util.find_spec(package_name) is not None

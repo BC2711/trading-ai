@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from app.core.config import settings
 from app.main import app
+from app.services.ai.models import ModelService, is_package_available
 
 
 def auth_headers(client: TestClient, email: str = "admin@example.com") -> dict[str, str]:
@@ -309,3 +310,14 @@ def test_ai_training_pipeline_versions_deploys_compares_and_predicts() -> None:
     assert "bb_width" in predict_response.json()["features"]
     assert disable_response.status_code == 200
     assert disable_response.json()["status"] == "disabled"
+
+
+def test_neural_model_factory_uses_native_pytorch_when_available() -> None:
+    service = ModelService()
+
+    for model_type in ["lstm", "gru", "transformer"]:
+        _model, params = service.create_model(model_type, {"epochs": 1, "hidden_dim": 8, "sequence_length": 3})
+        if is_package_available("torch"):
+            assert params["runtime_adapter"] == f"pytorch.{model_type}"
+        else:
+            assert params["runtime_adapter"] == f"sklearn.mlp_{model_type}_fallback_missing_torch"
