@@ -179,3 +179,80 @@ def test_trader_can_view_but_not_manage_symbols() -> None:
 
     assert list_response.status_code == 200
     assert create_response.status_code == 403
+
+
+def test_market_data_import_stores_spread_and_detects_missing_candles() -> None:
+    with TestClient(app) as client:
+        headers = auth_headers(client)
+        import_response = client.post(
+            "/api/market-data/import",
+            headers=headers,
+            json={
+                "market": "crypto",
+                "exchange": "binance",
+                "timeframe": "1m",
+                "candles": [
+                    {
+                        "symbol": "ADAUSDT",
+                        "timeframe": "1m",
+                        "opened_at": "2026-06-09T10:00:00Z",
+                        "open": 1.0,
+                        "high": 1.2,
+                        "low": 0.9,
+                        "close": 1.1,
+                        "volume": 1000,
+                        "spread": 0.0002,
+                    },
+                    {
+                        "symbol": "ADAUSDT",
+                        "timeframe": "1m",
+                        "opened_at": "2026-06-09T10:02:00Z",
+                        "open": 1.1,
+                        "high": 1.3,
+                        "low": 1.0,
+                        "close": 1.2,
+                        "volume": 1200,
+                        "spread": 0.0003,
+                    },
+                ],
+            },
+        )
+        candles_response = client.get("/api/candles", headers=headers, params={"symbol": "ADAUSDT", "timeframe": "1m", "limit": 10})
+        validation_response = client.get("/api/market-data/validate", headers=headers, params={"symbol": "ADAUSDT", "timeframe": "1m", "limit": 10})
+
+    assert import_response.status_code == 200
+    assert import_response.json()["candle_inserted"] == 2
+    assert candles_response.status_code == 200
+    assert candles_response.json()[0]["spread"] == 0.0002
+    assert validation_response.status_code == 200
+    assert validation_response.json()["valid"] is False
+    assert validation_response.json()["missing_candles"][0]["expected_at"].startswith("2026-06-09T10:01:00")
+
+
+def test_market_data_stream_ingests_and_lists_ticks() -> None:
+    with TestClient(app) as client:
+        headers = auth_headers(client)
+        stream_response = client.post(
+            "/api/market-data/stream",
+            headers=headers,
+            json={
+                "channel": "ticks",
+                "payload": {
+                    "symbol": "EURUSD",
+                    "exchange": "oanda",
+                    "tick_time": "2026-06-09T11:00:00Z",
+                    "bid": 1.081,
+                    "ask": 1.0812,
+                    "price": 1.0811,
+                    "volume": 250000,
+                    "source": "stream",
+                },
+            },
+        )
+        ticks_response = client.get("/api/market-data/ticks", headers=headers, params={"symbol": "EURUSD", "limit": 5})
+
+    assert stream_response.status_code == 200
+    assert stream_response.json()["inserted"] == 1
+    assert ticks_response.status_code == 200
+    assert ticks_response.json()[0]["symbol"] == "EURUSD"
+    assert ticks_response.json()[0]["spread"] == 0.0002

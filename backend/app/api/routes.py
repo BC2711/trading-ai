@@ -1,9 +1,8 @@
-import json
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 
 from app.db.deps import get_db
-from app.models import MarketCandle, Signal
+from app.models import MarketCandle, MarketOrderBookSnapshot, MarketTick, MarketTrade, Signal
 from app.schemas.trading import (
     AIModelPrediction,
     AIModelRead,
@@ -19,12 +18,21 @@ from app.schemas.trading import (
     BacktestRunRequest,
     CurrentUserRead,
     MarketCandleRead,
+    MarketDataImportRequest,
+    MarketDataImportResponse,
     MarketDataRefreshRequest,
     MarketDataRefreshResponse,
+    MarketDataRepairRequest,
+    MarketDataRepairResponse,
     MarketDataScheduleResponse,
+    MarketDataStreamEvent,
     MarketDataSyncRequest,
     MarketDataSyncResponse,
     MarketDataTaskResponse,
+    MarketDataValidationResponse,
+    MarketOrderBookRead,
+    MarketTickRead,
+    MarketTradeRead,
     NotificationCreate,
     NotificationRead,
     PaperOrderRead,
@@ -53,7 +61,7 @@ from app.schemas.trading import (
     UserUpdate,
 )
 from app.core.config import settings
-from app.core.security import create_access_token, create_refresh_token, decode_refresh_token
+from app.core.security import create_access_token, create_refresh_token, decode_jwt, decode_refresh_token
 from app.db.auth import get_current_user as require_current_user, require_permission, require_role
 from app.services.indicators.technical import moving_average_snapshot
 from app.models import User
@@ -71,7 +79,10 @@ from app.services.repository import (
 )
 from app.services.market_data.binance import MarketDataProviderError
 from app.services.market_data.jobs import run_market_data_refresh
+from app.services.market_data.repository import MarketDataRepository
+from app.services.market_data.service import MarketDataService
 from app.services.market_data.sync import sync_market_data
+from app.services.market_data.websocket import market_data_websocket
 from app.services.ai.advisor import analyze_signal, analysis_to_response, get_ai_analysis, list_ai_analyses
 from app.services.ai.training import predict as predict_ai_model
 from app.services.ai.training import train_model
@@ -209,31 +220,22 @@ NAVIGATION_ITEMS = [
 ]
 
 
-class ConnectionManager:
-    def __init__(self):
-        self.active_connections: list[WebSocket] = []
-
-    async def connect(self, websocket: WebSocket):
-        await websocket.accept()
-        self.active_connections.append(websocket)
-
-    def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
-
-    async def broadcast(self, message: dict):
-        for connection in self.active_connections:
-            await connection.send_json(message)
-
-manager = ConnectionManager()
-
 @router.websocket("/ws/market-data")
-async def websocket_market_data(websocket: WebSocket):
-    await manager.connect(websocket)
+async def websocket_market_data(websocket: WebSocket, channels: str | None = None, token: str | None = None):
+    if token and not decode_jwt(token):
+        await websocket.close(code=1008)
+        return
+    selected_channels = channels.split(",") if channels else None
+    await market_data_websocket.connect(websocket, selected_channels)
     try:
         while True:
-            await websocket.receive_text()
+            message = await websocket.receive_json()
+            if isinstance(message, dict) and message.get("type") == "subscribe":
+                requested = message.get("channels")
+                if isinstance(requested, list):
+                    await market_data_websocket.subscribe(websocket, [str(channel) for channel in requested])
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
+        market_data_websocket.disconnect(websocket)
 
 @router.get("/health", tags=["health"])
 def health_check() -> dict[str, str]:
@@ -401,6 +403,88 @@ def get_candles(
     _user: User = Depends(require_permission("market-data:view")),
 ) -> list[MarketCandleRead]:
     return [market_candle_to_schema(candle) for candle in list_candles(db, symbol, timeframe, limit)]
+
+
+@router.post("/market-data/import", response_model=MarketDataImportResponse, tags=["market-data"])
+def post_market_data_import(
+    payload: MarketDataImportRequest,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("market-data:import")),
+) -> MarketDataImportResponse:
+    try:
+        return MarketDataService(db).import_historical_data(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/market-data/validate", response_model=MarketDataValidationResponse, tags=["market-data"])
+def get_market_data_validation(
+    symbol: str = Query("BTCUSDT"),
+    timeframe: str = Query("15m"),
+    limit: int = Query(500, ge=2, le=1000),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("market-data:view")),
+) -> MarketDataValidationResponse:
+    try:
+        return MarketDataService(db).validate_data(symbol, timeframe, limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/market-data/repair", response_model=MarketDataRepairResponse, tags=["market-data"])
+def post_market_data_repair(
+    payload: MarketDataRepairRequest,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("market-data:repair")),
+) -> MarketDataRepairResponse:
+    try:
+        return MarketDataService(db).repair_data(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/market-data/ticks", response_model=list[MarketTickRead], tags=["market-data"])
+def get_market_ticks(
+    symbol: str = Query("BTCUSDT"),
+    limit: int = Query(200, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("market-data:view")),
+) -> list[MarketTickRead]:
+    return [tick_to_schema(tick) for tick in MarketDataRepository(db).list_ticks(symbol, limit)]
+
+
+@router.get("/market-data/trades", response_model=list[MarketTradeRead], tags=["market-data"])
+def get_market_trades(
+    symbol: str = Query("BTCUSDT"),
+    limit: int = Query(200, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("market-data:view")),
+) -> list[MarketTradeRead]:
+    return [trade_to_schema(trade) for trade in MarketDataRepository(db).list_trades(symbol, limit)]
+
+
+@router.get("/market-data/order-books", response_model=list[MarketOrderBookRead], tags=["market-data"])
+def get_market_order_books(
+    symbol: str = Query("BTCUSDT"),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("market-data:view")),
+) -> list[MarketOrderBookRead]:
+    return [order_book_to_schema(snapshot) for snapshot in MarketDataRepository(db).list_order_books(symbol, limit)]
+
+
+@router.post("/market-data/stream", tags=["market-data"])
+async def post_market_data_stream_event(
+    event: MarketDataStreamEvent,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("market-data:stream")),
+) -> dict:
+    try:
+        result = MarketDataService(db).ingest_stream_event(event)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await market_data_websocket.publish(event.channel, result["payload"])
+    return {"status": "ok", **result}
 
 
 @router.post("/market-data/sync", response_model=MarketDataSyncResponse, tags=["market-data"])
@@ -901,6 +985,52 @@ def market_candle_to_schema(candle: MarketCandle) -> MarketCandleRead:
         low=candle.low,
         close=candle.close,
         volume=candle.volume,
+        spread=candle.spread,
+    )
+
+
+def tick_to_schema(tick: MarketTick) -> MarketTickRead:
+    return MarketTickRead(
+        id=tick.id,
+        symbol=tick.symbol_ref.symbol,
+        exchange=tick.exchange,
+        tick_time=tick.tick_time,
+        bid=tick.bid,
+        ask=tick.ask,
+        price=tick.price,
+        volume=tick.volume,
+        spread=tick.spread,
+        source=tick.source,
+    )
+
+
+def trade_to_schema(trade: MarketTrade) -> MarketTradeRead:
+    return MarketTradeRead(
+        id=trade.id,
+        symbol=trade.symbol_ref.symbol,
+        exchange=trade.exchange,
+        trade_id=trade.trade_id,
+        traded_at=trade.traded_at,
+        price=trade.price,
+        quantity=trade.quantity,
+        side=trade.side,
+        source=trade.source,
+    )
+
+
+def order_book_to_schema(snapshot: MarketOrderBookSnapshot) -> MarketOrderBookRead:
+    return MarketOrderBookRead(
+        id=snapshot.id,
+        symbol=snapshot.symbol_ref.symbol,
+        exchange=snapshot.exchange,
+        captured_at=snapshot.captured_at,
+        bids=snapshot.bids,
+        asks=snapshot.asks,
+        best_bid=snapshot.best_bid,
+        best_ask=snapshot.best_ask,
+        spread=snapshot.spread,
+        depth=snapshot.depth,
+        source=snapshot.source,
     )
 
 

@@ -28,6 +28,7 @@ class MarketCandleCreate(BaseModel):
     low: float
     close: float
     volume: float
+    spread: float = Field(default=0.0, ge=0)
 
 
 class MarketCandleRead(BaseModel):
@@ -40,6 +41,7 @@ class MarketCandleRead(BaseModel):
     low: float
     close: float
     volume: float
+    spread: float = 0.0
 
 
 class MarketDataSyncRequest(BaseModel):
@@ -95,6 +97,144 @@ class MarketDataScheduleResponse(BaseModel):
     timeframe: str
     limit: int
     regenerate_signals: bool
+
+
+class MarketTickCreate(BaseModel):
+    symbol: str
+    exchange: str = "binance"
+    tick_time: datetime
+    price: float = Field(..., gt=0)
+    volume: float = Field(default=0.0, ge=0)
+    bid: float | None = Field(default=None, gt=0)
+    ask: float | None = Field(default=None, gt=0)
+    spread: float | None = Field(default=None, ge=0)
+    source: str = "import"
+
+
+class MarketTickRead(BaseModel):
+    id: int
+    symbol: str
+    exchange: str
+    tick_time: datetime
+    bid: float | None
+    ask: float | None
+    price: float
+    volume: float
+    spread: float
+    source: str
+
+
+class MarketTradeCreate(BaseModel):
+    symbol: str
+    exchange: str = "binance"
+    trade_id: str
+    traded_at: datetime
+    price: float = Field(..., gt=0)
+    quantity: float = Field(..., gt=0)
+    side: str = Field(default="unknown", pattern="^(buy|sell|unknown)$")
+    source: str = "import"
+
+
+class MarketTradeRead(BaseModel):
+    id: int
+    symbol: str
+    exchange: str
+    trade_id: str
+    traded_at: datetime
+    price: float
+    quantity: float
+    side: str
+    source: str
+
+
+class MarketOrderBookCreate(BaseModel):
+    symbol: str
+    exchange: str = "binance"
+    captured_at: datetime
+    bids: list[list[float]] = Field(default_factory=list)
+    asks: list[list[float]] = Field(default_factory=list)
+    source: str = "stream"
+
+
+class MarketOrderBookRead(BaseModel):
+    id: int
+    symbol: str
+    exchange: str
+    captured_at: datetime
+    bids: list[list[float]]
+    asks: list[list[float]]
+    best_bid: float | None
+    best_ask: float | None
+    spread: float
+    depth: int
+    source: str
+
+
+class MarketDataImportRequest(BaseModel):
+    market: str = Field(default="crypto", pattern="^(forex|stock|crypto|commodity|index|indices|commodities|stocks)$")
+    exchange: str = "binance"
+    timeframe: str = "15m"
+    candles: list[MarketCandleCreate] = Field(default_factory=list)
+    ticks: list[MarketTickCreate] = Field(default_factory=list)
+    trades: list[MarketTradeCreate] = Field(default_factory=list)
+    order_books: list[MarketOrderBookCreate] = Field(default_factory=list)
+
+
+class MarketDataImportResponse(BaseModel):
+    status: str
+    candle_inserted: int
+    candle_updated: int
+    tick_inserted: int
+    tick_updated: int
+    trade_inserted: int
+    trade_updated: int
+    order_book_inserted: int
+    order_book_updated: int
+
+
+class MarketDataValidationIssue(BaseModel):
+    symbol: str
+    timeframe: str | None = None
+    timestamp: datetime | None = None
+    severity: str
+    code: str
+    message: str
+
+
+class MissingCandleGap(BaseModel):
+    symbol: str
+    timeframe: str
+    expected_at: datetime
+
+
+class MarketDataValidationResponse(BaseModel):
+    symbol: str
+    timeframe: str
+    checked_candles: int
+    missing_candles: list[MissingCandleGap]
+    issues: list[MarketDataValidationIssue]
+    valid: bool
+
+
+class MarketDataRepairRequest(BaseModel):
+    symbol: str
+    timeframe: str = "15m"
+    limit: int = Field(default=500, ge=1, le=1000)
+    repair_missing: bool = True
+    regenerate_signals: bool = False
+
+
+class MarketDataRepairResponse(BaseModel):
+    status: str
+    validation_before: MarketDataValidationResponse
+    validation_after: MarketDataValidationResponse | None = None
+    sync_result: MarketDataSyncResult | None = None
+    error: str | None = None
+
+
+class MarketDataStreamEvent(BaseModel):
+    channel: str = Field(..., pattern="^(candles|ticks|order_books|trades)$")
+    payload: MarketCandleCreate | MarketTickCreate | MarketOrderBookCreate | MarketTradeCreate
 
 
 class SignalRead(BaseModel):

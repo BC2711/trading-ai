@@ -105,6 +105,35 @@ Docker Compose includes service health checks, but Docker Desktop or Docker Engi
 - `GET /api/ai/analyses`
 - `GET /api/ai/analyses/{analysis_id}`
 
+## Market Data Engine
+
+The backend includes a multi-asset market data layer for crypto, forex, stocks, commodities, and indices. Binance REST sync is available for crypto candles; other asset classes can be loaded through the historical import API.
+
+Stored data:
+
+- OHLCV candles with spread
+- Tick data with bid, ask, last price, volume, and spread
+- Trade prints
+- Order book snapshots
+
+Core endpoints:
+
+- `POST /api/market-data/import` imports candles, ticks, trades, and order books.
+- `GET /api/market-data/validate` checks OHLC integrity, negative values, spread validity, and missing candles.
+- `POST /api/market-data/repair` repairs missing crypto candles through the configured Binance source.
+- `GET /api/market-data/ticks`
+- `GET /api/market-data/trades`
+- `GET /api/market-data/order-books`
+- `POST /api/market-data/stream` ingests live candle/tick/trade/order-book events.
+- `WS /api/ws/market-data?channels=candles,ticks,order_books,trades&token=<access-token>` streams live events to subscribed clients.
+
+Implementation modules:
+
+- `MarketDataService`: import, validation, repair, and stream ingestion orchestration.
+- `MarketDataRepository`: persistence, upserts, latest reads, symbol normalization, and missing candle detection.
+- `MarketDataScheduler`: scheduled update/repair facade.
+- `MarketDataWebsocket`: channel-based realtime fanout.
+
 ## AI Provider
 
 The backend supports a rule-based AI provider by default. Set `AI_PROVIDER=openai` and provide `OPENAI_API_KEY` to enable OpenAI-based analysis.

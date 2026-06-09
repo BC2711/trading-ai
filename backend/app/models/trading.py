@@ -23,6 +23,9 @@ class Symbol(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     candles: Mapped[list["MarketCandle"]] = relationship(back_populates="symbol_ref")
+    ticks: Mapped[list["MarketTick"]] = relationship(back_populates="symbol_ref")
+    order_books: Mapped[list["MarketOrderBookSnapshot"]] = relationship(back_populates="symbol_ref")
+    trades: Mapped[list["MarketTrade"]] = relationship(back_populates="symbol_ref")
     signals: Mapped[list["Signal"]] = relationship(back_populates="symbol_ref")
     orders: Mapped[list["PaperOrder"]] = relationship(back_populates="symbol_ref")
     positions: Mapped[list["PaperPosition"]] = relationship(back_populates="symbol_ref")
@@ -43,9 +46,73 @@ class MarketCandle(Base):
     low: Mapped[float] = mapped_column(Float)
     close: Mapped[float] = mapped_column(Float)
     volume: Mapped[float] = mapped_column(Float)
+    spread: Mapped[float] = mapped_column(Float, default=0.0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     symbol_ref: Mapped[Symbol] = relationship(back_populates="candles")
+
+
+class MarketTick(Base):
+    __tablename__ = "market_ticks"
+    __table_args__ = (
+        UniqueConstraint("symbol_id", "exchange", "tick_time", name="uq_market_tick_symbol_exchange_time"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    symbol_id: Mapped[int] = mapped_column(ForeignKey("symbols.id", ondelete="CASCADE"), index=True)
+    exchange: Mapped[str] = mapped_column(String(32), default="binance")
+    tick_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    bid: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ask: Mapped[float | None] = mapped_column(Float, nullable=True)
+    price: Mapped[float] = mapped_column(Float)
+    volume: Mapped[float] = mapped_column(Float, default=0.0)
+    spread: Mapped[float] = mapped_column(Float, default=0.0)
+    source: Mapped[str] = mapped_column(String(32), default="import")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    symbol_ref: Mapped[Symbol] = relationship(back_populates="ticks")
+
+
+class MarketOrderBookSnapshot(Base):
+    __tablename__ = "market_order_books"
+    __table_args__ = (
+        UniqueConstraint("symbol_id", "exchange", "captured_at", name="uq_order_book_symbol_exchange_time"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    symbol_id: Mapped[int] = mapped_column(ForeignKey("symbols.id", ondelete="CASCADE"), index=True)
+    exchange: Mapped[str] = mapped_column(String(32), default="binance")
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    bids: Mapped[list[list[float]]] = mapped_column(JSON, default=list)
+    asks: Mapped[list[list[float]]] = mapped_column(JSON, default=list)
+    best_bid: Mapped[float | None] = mapped_column(Float, nullable=True)
+    best_ask: Mapped[float | None] = mapped_column(Float, nullable=True)
+    spread: Mapped[float] = mapped_column(Float, default=0.0)
+    depth: Mapped[int] = mapped_column(Integer, default=0)
+    source: Mapped[str] = mapped_column(String(32), default="stream")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    symbol_ref: Mapped[Symbol] = relationship(back_populates="order_books")
+
+
+class MarketTrade(Base):
+    __tablename__ = "market_trades"
+    __table_args__ = (
+        UniqueConstraint("symbol_id", "exchange", "trade_id", name="uq_market_trade_symbol_exchange_trade"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    symbol_id: Mapped[int] = mapped_column(ForeignKey("symbols.id", ondelete="CASCADE"), index=True)
+    exchange: Mapped[str] = mapped_column(String(32), default="binance")
+    trade_id: Mapped[str] = mapped_column(String(80), index=True)
+    traded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    price: Mapped[float] = mapped_column(Float)
+    quantity: Mapped[float] = mapped_column(Float)
+    side: Mapped[str] = mapped_column(String(12), default="unknown")
+    source: Mapped[str] = mapped_column(String(32), default="stream")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    symbol_ref: Mapped[Symbol] = relationship(back_populates="trades")
 
 
 class Strategy(Base):

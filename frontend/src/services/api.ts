@@ -94,7 +94,10 @@ export type MarketCandle = {
   low: number;
   close: number;
   volume: number;
+  spread: number;
 };
+
+export type MarketCandleCreate = Omit<MarketCandle, "id">;
 
 export type StrategyResource = {
   id: number;
@@ -184,6 +187,104 @@ export type MarketDataSchedule = {
   limit: number;
   regenerate_signals: boolean;
 };
+
+export type MarketTick = {
+  id: number;
+  symbol: string;
+  exchange: string;
+  tick_time: string;
+  bid: number | null;
+  ask: number | null;
+  price: number;
+  volume: number;
+  spread: number;
+  source: string;
+};
+
+export type MarketTickCreate = Omit<MarketTick, "id" | "spread"> & { spread?: number | null };
+
+export type MarketTrade = {
+  id: number;
+  symbol: string;
+  exchange: string;
+  trade_id: string;
+  traded_at: string;
+  price: number;
+  quantity: number;
+  side: "buy" | "sell" | "unknown";
+  source: string;
+};
+
+export type MarketTradeCreate = Omit<MarketTrade, "id">;
+
+export type MarketOrderBook = {
+  id: number;
+  symbol: string;
+  exchange: string;
+  captured_at: string;
+  bids: number[][];
+  asks: number[][];
+  best_bid: number | null;
+  best_ask: number | null;
+  spread: number;
+  depth: number;
+  source: string;
+};
+
+export type MarketOrderBookCreate = Pick<MarketOrderBook, "symbol" | "exchange" | "captured_at" | "bids" | "asks" | "source">;
+
+export type MarketDataImportRequest = {
+  market?: "forex" | "stock" | "crypto" | "commodity" | "index" | "indices" | "commodities" | "stocks";
+  exchange?: string;
+  timeframe?: string;
+  candles?: MarketCandleCreate[];
+  ticks?: MarketTickCreate[];
+  trades?: MarketTradeCreate[];
+  order_books?: MarketOrderBookCreate[];
+};
+
+export type MarketDataImportResponse = {
+  status: string;
+  candle_inserted: number;
+  candle_updated: number;
+  tick_inserted: number;
+  tick_updated: number;
+  trade_inserted: number;
+  trade_updated: number;
+  order_book_inserted: number;
+  order_book_updated: number;
+};
+
+export type MarketDataValidationResponse = {
+  symbol: string;
+  timeframe: string;
+  checked_candles: number;
+  missing_candles: Array<{ symbol: string; timeframe: string; expected_at: string }>;
+  issues: Array<{ symbol: string; timeframe: string | null; timestamp: string | null; severity: string; code: string; message: string }>;
+  valid: boolean;
+};
+
+export type MarketDataRepairRequest = {
+  symbol: string;
+  timeframe?: string;
+  limit?: number;
+  repair_missing?: boolean;
+  regenerate_signals?: boolean;
+};
+
+export type MarketDataRepairResponse = {
+  status: string;
+  validation_before: MarketDataValidationResponse;
+  validation_after: MarketDataValidationResponse | null;
+  sync_result: MarketDataResult | null;
+  error?: string | null;
+};
+
+export type MarketDataStreamEvent =
+  | { channel: "candles"; payload: MarketCandleCreate }
+  | { channel: "ticks"; payload: MarketTickCreate }
+  | { channel: "trades"; payload: MarketTradeCreate }
+  | { channel: "order_books"; payload: MarketOrderBookCreate };
 
 export type BacktestRunRequest = {
   symbol?: string;
@@ -544,6 +645,59 @@ export async function updateRiskSettings(id: number, payload: RiskSettingUpdateR
 export async function fetchMarketDataSchedule(): Promise<MarketDataSchedule> {
   const response = await apiClient.get<MarketDataSchedule>("/api/market-data/schedule");
   return response.data;
+}
+
+export async function importMarketData(payload: MarketDataImportRequest): Promise<MarketDataImportResponse> {
+  const response = await apiClient.post<MarketDataImportResponse>("/api/market-data/import", payload);
+  return response.data;
+}
+
+export async function validateMarketData(symbol = "BTCUSDT", timeframe = "15m", limit = 500): Promise<MarketDataValidationResponse> {
+  const response = await apiClient.get<MarketDataValidationResponse>("/api/market-data/validate", {
+    params: { symbol, timeframe, limit }
+  });
+  return response.data;
+}
+
+export async function repairMarketData(payload: MarketDataRepairRequest): Promise<MarketDataRepairResponse> {
+  const response = await apiClient.post<MarketDataRepairResponse>("/api/market-data/repair", payload);
+  return response.data;
+}
+
+export async function fetchMarketTicks(symbol = "BTCUSDT", limit = 200): Promise<MarketTick[]> {
+  const response = await apiClient.get<MarketTick[]>("/api/market-data/ticks", {
+    params: { symbol, limit }
+  });
+  return response.data;
+}
+
+export async function fetchMarketTrades(symbol = "BTCUSDT", limit = 200): Promise<MarketTrade[]> {
+  const response = await apiClient.get<MarketTrade[]>("/api/market-data/trades", {
+    params: { symbol, limit }
+  });
+  return response.data;
+}
+
+export async function fetchMarketOrderBooks(symbol = "BTCUSDT", limit = 50): Promise<MarketOrderBook[]> {
+  const response = await apiClient.get<MarketOrderBook[]>("/api/market-data/order-books", {
+    params: { symbol, limit }
+  });
+  return response.data;
+}
+
+export async function ingestMarketDataStream(event: MarketDataStreamEvent): Promise<{ status: string; channel: string; inserted: number; updated: number }> {
+  const response = await apiClient.post<{ status: string; channel: string; inserted: number; updated: number }>("/api/market-data/stream", event);
+  return response.data;
+}
+
+export function marketDataWebsocketUrl(channels: Array<MarketDataStreamEvent["channel"]> = ["candles", "ticks", "order_books", "trades"]): string {
+  const url = new URL(API_BASE_URL.replace(/^http/, "ws") + "/api/ws/market-data");
+  url.searchParams.set("channels", channels.join(","));
+  const token = localStorage.getItem("trading_ai_token");
+  if (token) {
+    url.searchParams.set("token", token);
+  }
+  return url.toString();
 }
 
 export async function syncMarketData(payload: MarketDataSyncRequest): Promise<MarketDataSyncResponse> {
