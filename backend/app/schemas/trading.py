@@ -535,6 +535,13 @@ class AIModelTrainRequest(BaseModel):
     symbol: str = "BTCUSDT"
     timeframe: str = "15m"
     lookback: int = Field(default=240, ge=80, le=1000)
+    model_type: str = Field(default="random_forest", pattern="^(random_forest|xgboost|lightgbm|lstm|gru|transformer)$")
+    training_params: dict = Field(default_factory=dict)
+
+
+class AIModelRetrainRequest(BaseModel):
+    lookback: int | None = Field(default=None, ge=80, le=1000)
+    training_params: dict = Field(default_factory=dict)
 
 
 class AIModelRead(BaseModel):
@@ -543,8 +550,14 @@ class AIModelRead(BaseModel):
     symbol: str
     timeframe: str
     model_type: str
+    version: int = 1
+    parent_model_id: int | None = None
     model_path: str
     metrics: dict
+    feature_names: list[str] = Field(default_factory=list)
+    training_params: dict = Field(default_factory=dict)
+    target: str = "next_close_direction"
+    deployed: bool = False
     status: str
     created_at: datetime
 
@@ -557,6 +570,23 @@ class AIModelPrediction(BaseModel):
     direction: str
     confidence: float
     features: dict
+
+
+class AIModelCompareRequest(BaseModel):
+    model_ids: list[int] = Field(..., min_length=2, max_length=12)
+
+
+class AIModelComparison(BaseModel):
+    id: int
+    name: str
+    symbol: str
+    timeframe: str
+    model_type: str
+    version: int
+    status: str
+    deployed: bool
+    metrics: dict
+    rank: int
 
 
 class BacktestReport(BaseModel):

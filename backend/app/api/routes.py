@@ -6,6 +6,9 @@ from app.models import MarketCandle, MarketOrderBookSnapshot, MarketTick, Market
 from app.schemas.trading import (
     AIModelPrediction,
     AIModelRead,
+    AIModelCompareRequest,
+    AIModelComparison,
+    AIModelRetrainRequest,
     AIModelTrainRequest,
     AIAnalysisRequest,
     AIAnalysisResponse,
@@ -86,6 +89,7 @@ from app.services.market_data.websocket import market_data_websocket
 from app.services.ai.advisor import analyze_signal, analysis_to_response, get_ai_analysis, list_ai_analyses
 from app.services.ai.training import predict as predict_ai_model
 from app.services.ai.training import train_model
+from app.services.ai.training import compare_models, deploy_model, disable_model, retrain_model
 from app.services.admin import (
     authenticate_user,
     create_credential,
@@ -795,9 +799,71 @@ def post_ai_model_train(
     _user: User = Depends(require_role("admin")),
 ) -> AIModelRead:
     try:
-        return AIModelRead.model_validate(train_model(db, name=payload.name, symbol=payload.symbol, timeframe=payload.timeframe, lookback=payload.lookback))
+        return AIModelRead.model_validate(
+            train_model(
+                db,
+                name=payload.name,
+                symbol=payload.symbol,
+                timeframe=payload.timeframe,
+                lookback=payload.lookback,
+                model_type=payload.model_type,
+                training_params=payload.training_params,
+            )
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/ai/models/{model_id}/retrain", response_model=AIModelRead, tags=["ai"])
+def post_ai_model_retrain(
+    model_id: int,
+    payload: AIModelRetrainRequest | None = None,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
+) -> AIModelRead:
+    payload = payload or AIModelRetrainRequest()
+    try:
+        return AIModelRead.model_validate(
+            retrain_model(db, model_id, lookback=payload.lookback, training_params=payload.training_params)
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/ai/models/{model_id}/deploy", response_model=AIModelRead, tags=["ai"])
+def post_ai_model_deploy(
+    model_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
+) -> AIModelRead:
+    try:
+        return AIModelRead.model_validate(deploy_model(db, model_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/ai/models/{model_id}/disable", response_model=AIModelRead, tags=["ai"])
+def post_ai_model_disable(
+    model_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
+) -> AIModelRead:
+    try:
+        return AIModelRead.model_validate(disable_model(db, model_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/ai/models/compare", response_model=list[AIModelComparison], tags=["ai"])
+def post_ai_model_compare(
+    payload: AIModelCompareRequest,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("ai-models:view")),
+) -> list[AIModelComparison]:
+    try:
+        return [AIModelComparison.model_validate(item) for item in compare_models(db, payload.model_ids)]
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/ai/models/{model_id}/predict", response_model=AIModelPrediction, tags=["ai"])

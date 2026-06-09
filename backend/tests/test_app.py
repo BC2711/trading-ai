@@ -256,3 +256,56 @@ def test_market_data_stream_ingests_and_lists_ticks() -> None:
     assert ticks_response.status_code == 200
     assert ticks_response.json()[0]["symbol"] == "EURUSD"
     assert ticks_response.json()[0]["spread"] == 0.0002
+
+
+def test_ai_training_pipeline_versions_deploys_compares_and_predicts() -> None:
+    with TestClient(app) as client:
+        headers = auth_headers(client)
+        train_response = client.post(
+            "/api/ai/models/train",
+            headers=headers,
+            json={
+                "name": "Pipeline Test Model",
+                "symbol": "BTCUSDT",
+                "timeframe": "15m",
+                "lookback": 240,
+                "model_type": "random_forest",
+                "training_params": {"n_estimators": 20, "max_depth": 4, "random_state": 42},
+            },
+        )
+        assert train_response.status_code == 200, train_response.text
+        model = train_response.json()
+
+        retrain_response = client.post(
+            f"/api/ai/models/{model['id']}/retrain",
+            headers=headers,
+            json={"lookback": 240, "training_params": {"n_estimators": 20, "max_depth": 4, "random_state": 42}},
+        )
+        assert retrain_response.status_code == 200, retrain_response.text
+        retrained = retrain_response.json()
+
+        deploy_response = client.post(f"/api/ai/models/{retrained['id']}/deploy", headers=headers)
+        compare_response = client.post(
+            "/api/ai/models/compare",
+            headers=headers,
+            json={"model_ids": [model["id"], retrained["id"]]},
+        )
+        predict_response = client.post(f"/api/ai/models/{retrained['id']}/predict", headers=headers)
+        disable_response = client.post(f"/api/ai/models/{retrained['id']}/disable", headers=headers)
+
+    assert model["version"] == 1
+    assert retrained["version"] == 2
+    assert retrained["parent_model_id"] == model["id"]
+    assert "rsi_14" in model["feature_names"]
+    assert "macd" in model["feature_names"]
+    assert "adx_14" in model["feature_names"]
+    assert deploy_response.status_code == 200
+    assert deploy_response.json()["deployed"] is True
+    assert deploy_response.json()["status"] == "deployed"
+    assert compare_response.status_code == 200
+    assert [item["rank"] for item in compare_response.json()] == [1, 2]
+    assert predict_response.status_code == 200
+    assert predict_response.json()["direction"] in {"buy", "sell"}
+    assert "bb_width" in predict_response.json()["features"]
+    assert disable_response.status_code == 200
+    assert disable_response.json()["status"] == "disabled"

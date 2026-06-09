@@ -163,6 +163,39 @@ Notes:
 - Running local LLMs requires significant CPU/RAM; consider GPU or quantized models for performance.
 - For Ollama users, configure `OLLAMA_BASE_URL` and `OLLAMA_MODEL` and set `AI_PROVIDER=ollama`.
 
+## AI Training Pipeline
+
+The backend includes a feature-engineering and model-management pipeline for directional prediction on candle history.
+
+Feature generation includes RSI, MACD, EMA, SMA, ATR, ADX, Bollinger Bands, candle returns/ranges, spread, volume ratio, volume moving average, and OBV.
+
+Supported model types:
+
+- `random_forest`
+- `xgboost`
+- `lightgbm`
+- `lstm`
+- `gru`
+- `transformer`
+
+`xgboost` uses XGBoost when available. `lightgbm` uses LightGBM when installed and otherwise falls back to sklearn histogram gradient boosting. `lstm`, `gru`, and `transformer` use local sklearn MLP adapters unless a dedicated deep-learning runtime is added later.
+
+Core endpoints:
+
+- `POST /api/ai/models/train`
+- `POST /api/ai/models/{model_id}/retrain`
+- `POST /api/ai/models/{model_id}/deploy`
+- `POST /api/ai/models/{model_id}/disable`
+- `POST /api/ai/models/compare`
+- `POST /api/ai/models/{model_id}/predict`
+
+Implementation modules:
+
+- `FeatureService`: feature engineering and supervised dataset creation.
+- `ModelService`: model factory and artifact persistence.
+- `ModelEvaluationService`: accuracy, precision, recall, F1, ROC AUC, and confidence metrics.
+- `TrainingService`: train, retrain, deploy, disable, compare, version, and predict orchestration.
+
 ## Stack
 
 Backend: Python, FastAPI, SQLAlchemy, Alembic, PostgreSQL, Redis, Celery, APScheduler, Pandas, NumPy, Scikit-learn, XGBoost, pandas-ta, Sentry, Prometheus metrics.

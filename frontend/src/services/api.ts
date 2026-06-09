@@ -480,8 +480,14 @@ export type AIModelResource = {
   symbol: string;
   timeframe: string;
   model_type: string;
+  version: number;
+  parent_model_id: number | null;
   model_path: string;
   metrics: Record<string, number | string>;
+  feature_names: string[];
+  training_params: Record<string, unknown>;
+  target: string;
+  deployed: boolean;
   status: string;
   created_at: string;
 };
@@ -491,6 +497,13 @@ export type AIModelTrainRequest = {
   symbol?: string;
   timeframe?: string;
   lookback?: number;
+  model_type?: "random_forest" | "xgboost" | "lightgbm" | "lstm" | "gru" | "transformer";
+  training_params?: Record<string, unknown>;
+};
+
+export type AIModelRetrainRequest = {
+  lookback?: number;
+  training_params?: Record<string, unknown>;
 };
 
 export type AIModelPrediction = {
@@ -499,6 +512,13 @@ export type AIModelPrediction = {
   direction: string;
   confidence: number;
   features: Record<string, number>;
+};
+
+export type AIModelComparison = Pick<
+  AIModelResource,
+  "id" | "name" | "symbol" | "timeframe" | "model_type" | "version" | "status" | "deployed" | "metrics"
+> & {
+  rank: number;
 };
 
 export type NotificationResource = {
@@ -773,6 +793,26 @@ export async function fetchAIModels(): Promise<AIModelResource[]> {
 
 export async function trainAIModel(payload: AIModelTrainRequest): Promise<AIModelResource> {
   const response = await apiClient.post<AIModelResource>("/api/ai/models/train", payload);
+  return response.data;
+}
+
+export async function retrainAIModel(id: number, payload: AIModelRetrainRequest = {}): Promise<AIModelResource> {
+  const response = await apiClient.post<AIModelResource>(`/api/ai/models/${id}/retrain`, payload);
+  return response.data;
+}
+
+export async function deployAIModel(id: number): Promise<AIModelResource> {
+  const response = await apiClient.post<AIModelResource>(`/api/ai/models/${id}/deploy`);
+  return response.data;
+}
+
+export async function disableAIModel(id: number): Promise<AIModelResource> {
+  const response = await apiClient.post<AIModelResource>(`/api/ai/models/${id}/disable`);
+  return response.data;
+}
+
+export async function compareAIModels(modelIds: number[]): Promise<AIModelComparison[]> {
+  const response = await apiClient.post<AIModelComparison[]>("/api/ai/models/compare", { model_ids: modelIds });
   return response.data;
 }
 
