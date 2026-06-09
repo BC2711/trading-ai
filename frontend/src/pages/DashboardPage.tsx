@@ -190,6 +190,18 @@ export function DashboardPage() {
     }
   }, [riskSettings]);
 
+  useEffect(() => {
+    const syncRouteState = () => {
+      if ((window.location.hash || "#/overview") === "#/overview/settings") {
+        setStrategyOpen(true);
+      }
+    };
+
+    syncRouteState();
+    window.addEventListener("hashchange", syncRouteState);
+    return () => window.removeEventListener("hashchange", syncRouteState);
+  }, []);
+
   const settingsMutation = useMutation({
     mutationFn: async () => {
       if (!activeStrategy || !riskSettings) {

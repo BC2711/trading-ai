@@ -9,6 +9,7 @@ from app.schemas.trading import (
     AuditEventRead,
     BacktestRunRead,
     BacktestRunRequest,
+    CurrentUserRead,
     MarketCandleRead,
     MarketDataRefreshRequest,
     MarketDataRefreshResponse,
@@ -20,6 +21,7 @@ from app.schemas.trading import (
     PaperOrderRequest,
     PaperPositionRead,
     EquityCurveResponse,
+    NavigationItemRead,
     PortfolioSummaryResponse,
     RiskSettingRead,
     RiskSettingUpdate,
@@ -64,10 +66,117 @@ from app.workers.tasks import refresh_market_data
 
 router = APIRouter()
 
+TRADING_PERMISSIONS = [
+    "dashboard:view",
+    "portfolio:view",
+    "signals:view",
+    "signals:analyze",
+    "market-data:view",
+    "market-data:refresh",
+    "backtests:view",
+    "backtests:run",
+    "strategies:view",
+    "strategies:update",
+    "risk-settings:view",
+    "risk-settings:update",
+    "orders:view",
+    "orders:create",
+    "orders:cancel",
+    "positions:view",
+    "positions:close",
+    "ai-provider:view",
+    "ai-provider:update",
+    "audit:view",
+]
+
+NAVIGATION_ITEMS = [
+    {
+        "label": "Overview",
+        "href": "#/overview",
+        "icon": "layout-dashboard",
+        "permission": "dashboard:view",
+        "children": [
+            {
+                "label": "Portfolio",
+                "href": "#/overview/portfolio",
+                "icon": "wallet",
+                "permission": "portfolio:view",
+            },
+            {
+                "label": "Signals",
+                "href": "#/overview/signals",
+                "icon": "sparkles",
+                "permission": "signals:view",
+            },
+            {
+                "label": "Strategy Controls",
+                "href": "#/overview/settings",
+                "icon": "sliders-horizontal",
+                "permission": "strategies:update",
+            },
+        ],
+    },
+    {
+        "label": "Trading",
+        "href": "#/trading",
+        "icon": "trending-up",
+        "permission": "orders:view",
+        "children": [
+            {
+                "label": "Orders",
+                "href": "#/trading/orders",
+                "icon": "activity",
+                "permission": "orders:view",
+            },
+            {
+                "label": "Positions",
+                "href": "#/trading/positions",
+                "icon": "wallet",
+                "permission": "positions:view",
+            },
+        ],
+    },
+    {
+        "label": "Activity",
+        "href": "#/activity",
+        "icon": "activity",
+        "permission": "audit:view",
+        "children": [
+            {
+                "label": "Timeline",
+                "href": "#/activity",
+                "icon": "clock",
+                "permission": "audit:view",
+            },
+            {
+                "label": "Audit Log",
+                "href": "#/activity/audit",
+                "icon": "users",
+                "permission": "audit:view",
+            },
+        ],
+    },
+]
+
 
 @router.get("/health", tags=["health"])
 def health_check() -> dict[str, str]:
     return {"status": "ok", "service": "trading-ai-backend"}
+
+
+@router.get("/me", response_model=CurrentUserRead, tags=["auth"])
+def get_current_user() -> CurrentUserRead:
+    return CurrentUserRead(
+        id="system-operator",
+        name="Trading Operator",
+        role="operator",
+        permissions=TRADING_PERMISSIONS,
+    )
+
+
+@router.get("/navigation", response_model=list[NavigationItemRead], tags=["auth"])
+def get_navigation() -> list[NavigationItemRead]:
+    return [NavigationItemRead.model_validate(item) for item in NAVIGATION_ITEMS]
 
 
 @router.get("/symbols", response_model=list[SymbolRead], tags=["symbols"])

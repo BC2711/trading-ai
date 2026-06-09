@@ -25,6 +25,22 @@ def test_security_headers_are_applied() -> None:
     assert response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
 
 
+def test_navigation_is_backend_driven_and_permissioned() -> None:
+    with TestClient(app) as client:
+        me_response = client.get("/api/me")
+        navigation_response = client.get("/api/navigation")
+
+    assert me_response.status_code == 200
+    assert navigation_response.status_code == 200
+
+    permissions = set(me_response.json()["permissions"])
+    navigation = navigation_response.json()
+
+    assert {item["href"] for item in navigation} == {"#/overview", "#/trading", "#/activity"}
+    assert all(item["permission"] in permissions for item in navigation)
+    assert all(child["permission"] in permissions for item in navigation for child in item["children"])
+
+
 def test_api_key_protects_api_routes() -> None:
     original_api_key = settings.api_key
     settings.api_key = "test-secret"

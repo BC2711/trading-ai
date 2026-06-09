@@ -252,6 +252,40 @@ export type AuditEventFilters = {
   entity_type?: string;
 };
 
+export type CurrentUser = {
+  id: string;
+  name: string;
+  role: string;
+  permissions: string[];
+};
+
+export type NavigationChild = {
+  label: string;
+  href: string;
+  icon: string;
+  permission: string;
+  badge?: string | null;
+  badge_color?: string | null;
+};
+
+export type NavigationItem = {
+  label: string;
+  href: string;
+  icon: string;
+  permission: string;
+  children: NavigationChild[];
+};
+
+export async function fetchCurrentUser(): Promise<CurrentUser> {
+  const response = await apiClient.get<CurrentUser>("/api/me");
+  return response.data;
+}
+
+export async function fetchNavigation(): Promise<NavigationItem[]> {
+  const response = await apiClient.get<NavigationItem[]>("/api/navigation");
+  return response.data;
+}
+
 export async function fetchSymbols(): Promise<SymbolResource[]> {
   const response = await apiClient.get<SymbolResource[]>("/api/symbols");
   return response.data;

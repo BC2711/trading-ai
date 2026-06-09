@@ -1,15 +1,14 @@
 import { AnimatePresence, motion } from "framer-motion";
+import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
-  BrainCircuit,
   ChevronDown,
+  Clock3,
   LayoutDashboard,
-  LineChart,
   Menu,
   Settings,
-  ShieldCheck,
   Sparkles,
-  Star,
+  SlidersHorizontal,
   TrendingUp,
   Users,
   Wallet,
@@ -21,6 +20,8 @@ import type { ReactNode } from "react";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 
+import { fetchCurrentUser, fetchNavigation } from "../../services/api";
+import type { NavigationItem } from "../../services/api";
 import { cn } from "../../utils/cn";
 import { IconButton } from "../ui/Button";
 
@@ -28,6 +29,7 @@ type ChildNavItem = {
   label: string;
   icon: LucideIcon;
   href: string;
+  permission: string;
   active?: boolean;
   badge?: string;
   badgeColor?: string;
@@ -37,67 +39,60 @@ type NavItem = {
   label: string;
   icon: LucideIcon;
   href: string;
+  permission: string;
   active?: boolean;
   children: ChildNavItem[];
 };
 
-const navItems: NavItem[] = [
+const iconMap: Record<string, LucideIcon> = {
+  activity: Activity,
+  clock: Clock3,
+  "layout-dashboard": LayoutDashboard,
+  "sliders-horizontal": SlidersHorizontal,
+  sparkles: Sparkles,
+  "trending-up": TrendingUp,
+  users: Users,
+  wallet: Wallet
+};
+
+const fallbackNavItems: NavItem[] = [
   {
     label: "Overview",
     icon: LayoutDashboard,
     href: "#/overview",
+    permission: "dashboard:view",
     children: [
-      { label: "Portfolio", icon: Wallet, href: "#/overview/portfolio", badge: "3", badgeColor: "bg-cyan-400/20 text-cyan-700 dark:text-cyan-200" },
-      { label: "Watchlists", icon: Star, href: "#/overview/watchlists", badge: "12", badgeColor: "bg-amber-400/20 text-amber-700 dark:text-amber-200" }
+      { label: "Portfolio", icon: Wallet, href: "#/overview/portfolio", permission: "portfolio:view" },
+      { label: "Signals", icon: Sparkles, href: "#/overview/signals", permission: "signals:view" },
+      { label: "Strategy Controls", icon: SlidersHorizontal, href: "#/overview/settings", permission: "strategies:update" }
     ]
   },
   {
     label: "Trading",
     icon: TrendingUp,
     href: "#/trading",
+    permission: "orders:view",
     children: [
-      { label: "Orders", icon: Activity, href: "#/trading/orders" },
-      { label: "Positions", icon: Wallet, href: "#/trading/positions" }
-    ]
-  },
-  {
-    label: "Markets",
-    icon: LineChart,
-    href: "#/markets",
-    children: [
-      { label: "Crypto", icon: TrendingUp, href: "#/markets/crypto" },
-      { label: "Forex", icon: TrendingUp, href: "#/markets/forex" },
-      { label: "Equities", icon: TrendingUp, href: "#/markets/equities", badge: "New", badgeColor: "bg-emerald-400/20 text-emerald-700 dark:text-emerald-200" }
-    ]
-  },
-  {
-    label: "AI Signals",
-    icon: BrainCircuit,
-    href: "#/signals",
-    children: [
-      { label: "Models", icon: Sparkles, href: "#/signals/models", badge: "4", badgeColor: "bg-violet-400/20 text-violet-700 dark:text-violet-200" },
-      { label: "Confidence", icon: ShieldCheck, href: "#/signals/confidence" }
-    ]
-  },
-  {
-    label: "Risk",
-    icon: ShieldCheck,
-    href: "#/risk",
-    children: [
-      { label: "Exposure", icon: Activity, href: "#/risk/exposure" },
-      { label: "Limits", icon: ShieldCheck, href: "#/risk/limits" }
+      { label: "Orders", icon: Activity, href: "#/trading/orders", permission: "orders:view" },
+      { label: "Positions", icon: Wallet, href: "#/trading/positions", permission: "positions:view" }
     ]
   },
   {
     label: "Activity",
     icon: Activity,
     href: "#/activity",
+    permission: "audit:view",
     children: [
-      { label: "Timeline", icon: Activity, href: "#/activity" },
-      { label: "Audit log", icon: Users, href: "#/activity/audit" }
+      { label: "Timeline", icon: Clock3, href: "#/activity", permission: "audit:view" },
+      { label: "Audit Log", icon: Users, href: "#/activity/audit", permission: "audit:view" }
     ]
   }
 ];
+
+const fallbackPermissions = fallbackNavItems.flatMap((item) => [
+  item.permission,
+  ...item.children.map((child) => child.permission)
+]);
 
 type SidebarProps = {
   collapsed: boolean;
@@ -106,6 +101,16 @@ type SidebarProps = {
 };
 
 export function Sidebar({ collapsed, onToggle, mobile = false }: SidebarProps) {
+  const currentUserQuery = useQuery({
+    queryKey: ["current-user"],
+    queryFn: fetchCurrentUser,
+    staleTime: 1000 * 60 * 5
+  });
+  const navigationQuery = useQuery({
+    queryKey: ["navigation"],
+    queryFn: fetchNavigation,
+    staleTime: 1000 * 60 * 5
+  });
   const [expandedItem, setExpandedItem] = useState<string | null>("Overview");
   const [openTooltip, setOpenTooltip] = useState<string | null>(null);
   const [activeChildHref, setActiveChildHref] = useState<string | null>(null);
@@ -113,6 +118,10 @@ export function Sidebar({ collapsed, onToggle, mobile = false }: SidebarProps) {
   const [tooltipPosition, setTooltipPosition] = useState({ top: 0, left: 0 });
   const sidebarRef = useRef<HTMLElement>(null);
   const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const permissions = new Set(currentUserQuery.data?.permissions ?? fallbackPermissions);
+  const navItems = (navigationQuery.data?.length ? navigationQuery.data.map(mapNavigationItem) : fallbackNavItems)
+    .filter((item) => permissions.has(item.permission))
+    .map((item) => ({ ...item, children: item.children.filter((child) => permissions.has(child.permission)) }));
 
   const handleChildClick = useCallback((href: string) => {
     setActiveChildHref(href);
@@ -133,7 +142,8 @@ export function Sidebar({ collapsed, onToggle, mobile = false }: SidebarProps) {
     }
   }, [collapsed]);
 
-  const toggleExpand = (label: string) => {
+  const toggleExpand = (label: string, href: string) => {
+    window.location.hash = href;
     if (!collapsed) {
       setExpandedItem((current) => (current === label ? null : label));
     }
@@ -263,7 +273,7 @@ export function Sidebar({ collapsed, onToggle, mobile = false }: SidebarProps) {
                     icon={item.icon}
                     label={item.label}
                     expanded={isExpanded}
-                    onClick={() => toggleExpand(item.label)}
+                    onClick={() => toggleExpand(item.label, item.href)}
                   />
 
                   <AnimatePresence initial={false}>
@@ -305,7 +315,7 @@ export function Sidebar({ collapsed, onToggle, mobile = false }: SidebarProps) {
         <AnimatePresence>
           {collapsed && openTooltip ? (
             <CollapsedSubmenuPanel
-              item={navItems.find(item => item.label === openTooltip)!}
+              item={navItems.find(item => item.label === openTooltip) ?? fallbackNavItems[0]}
               open={true}
               position={tooltipPosition}
               currentHash={currentHash}
@@ -322,6 +332,23 @@ export function Sidebar({ collapsed, onToggle, mobile = false }: SidebarProps) {
       )}
     </>
   );
+}
+
+function mapNavigationItem(item: NavigationItem): NavItem {
+  return {
+    label: item.label,
+    href: item.href,
+    icon: iconMap[item.icon] ?? LayoutDashboard,
+    permission: item.permission,
+    children: item.children.map((child) => ({
+      label: child.label,
+      href: child.href,
+      icon: iconMap[child.icon] ?? Activity,
+      permission: child.permission,
+      badge: child.badge ?? undefined,
+      badgeColor: child.badge_color ?? undefined
+    }))
+  };
 }
 
 function SidebarHeader({
@@ -720,8 +747,8 @@ function SidebarFooter({ collapsed }: { collapsed: boolean }) {
       </AnimatePresence>
 
       <GlassLabelTooltip label="Settings" disabled={!collapsed}>
-        <motion.button
-          type="button"
+        <motion.a
+          href="#/overview/settings"
           aria-label="Settings"
           title={collapsed ? "Settings" : undefined}
           whileHover={{ scale: 1.02 }}
@@ -753,7 +780,7 @@ function SidebarFooter({ collapsed }: { collapsed: boolean }) {
               </motion.span>
             ) : null}
           </AnimatePresence>
-        </motion.button>
+        </motion.a>
       </GlassLabelTooltip>
     </div>
   );

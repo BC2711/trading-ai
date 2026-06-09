@@ -1,10 +1,12 @@
 import { Bell, ChevronDown, Gauge, Menu, Moon, Plus, Sun } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { Badge } from "../ui/Badge";
 import { Button, IconButton } from "../ui/Button";
 import { Dropdown } from "../ui/Dropdown";
 import { SearchInput } from "../ui/SearchInput";
+import { fetchAuditEvents, fetchCurrentUser } from "../../services/api";
 
 type NavbarProps = {
   isDark: boolean;
@@ -15,6 +17,18 @@ type NavbarProps = {
 export function Navbar({ isDark, onThemeToggle, onMobileMenu }: NavbarProps) {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const currentUserQuery = useQuery({
+    queryKey: ["current-user"],
+    queryFn: fetchCurrentUser,
+    staleTime: 1000 * 60 * 5
+  });
+  const currentUser = currentUserQuery.data;
+  const initials = currentUser?.name
+    .split(" ")
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase() || "TO";
 
   return (
     <header className="sticky top-3 z-40 rounded-[8px] border border-white/20 bg-white/10 p-3 shadow-2xl shadow-slate-950/10 backdrop-blur-xl dark:border-white/10 dark:bg-white/5 dark:shadow-black/25 xl:top-6">
@@ -31,8 +45,8 @@ export function Navbar({ isDark, onThemeToggle, onMobileMenu }: NavbarProps) {
         </div>
 
         <div className="flex items-center gap-2">
-          <Button variant="primary" icon={Plus} className="hidden sm:inline-flex">
-            New strategy
+          <Button variant="primary" icon={Plus} className="hidden sm:inline-flex" onClick={() => { window.location.hash = "#/overview/settings"; }}>
+            Strategy controls
           </Button>
           <IconButton label={isDark ? "Switch to light mode" : "Switch to dark mode"} icon={isDark ? Sun : Moon} onClick={onThemeToggle} />
           <Dropdown
@@ -52,14 +66,14 @@ export function Navbar({ isDark, onThemeToggle, onMobileMenu }: NavbarProps) {
                 aria-label="Open user profile menu"
               >
                 <span className="grid size-8 place-items-center rounded-[8px] bg-gradient-to-br from-emerald-300 to-cyan-500 text-xs text-white">
-                  MC
+                  {initials}
                 </span>
-                <span className="hidden sm:inline">Maya</span>
+                <span className="hidden sm:inline">{currentUser?.name ?? "Operator"}</span>
                 <ChevronDown size={14} aria-hidden />
               </button>
             }
           >
-            <UserProfileMenu />
+            <UserProfileMenu name={currentUser?.name ?? "Trading Operator"} role={currentUser?.role ?? "operator"} />
           </Dropdown>
         </div>
 
@@ -70,36 +84,47 @@ export function Navbar({ isDark, onThemeToggle, onMobileMenu }: NavbarProps) {
 }
 
 function NotificationPanel() {
-  const items = [
-    { title: "BTC confidence crossed 80%", tone: "info" as const, time: "2m" },
-    { title: "Risk cap protected on EURUSD", tone: "success" as const, time: "14m" },
-    { title: "Volatility elevated on NQ", tone: "warning" as const, time: "31m" }
-  ];
+  const eventsQuery = useQuery({
+    queryKey: ["audit-events", "notifications"],
+    queryFn: () => fetchAuditEvents({ limit: 3 })
+  });
+  const items = eventsQuery.data ?? [];
 
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between px-2 py-1">
         <strong className="text-sm text-slate-900 dark:text-white">Notifications</strong>
-        <Badge tone="info">3 new</Badge>
+        <Badge tone="info">{items.length} recent</Badge>
       </div>
+      {eventsQuery.isLoading ? (
+        <div className="rounded-[8px] border border-white/10 bg-white/10 p-3 text-sm font-semibold text-slate-500 dark:bg-white/5 dark:text-white/50">
+          Loading recent events
+        </div>
+      ) : null}
+      {!eventsQuery.isLoading && items.length === 0 ? (
+        <div className="rounded-[8px] border border-white/10 bg-white/10 p-3 text-sm font-semibold text-slate-500 dark:bg-white/5 dark:text-white/50">
+          No audit events yet
+        </div>
+      ) : null}
       {items.map((item) => (
         <button
-          key={item.title}
+          key={item.id}
           type="button"
           className="flex w-full items-start gap-3 rounded-[8px] border border-white/10 bg-white/10 p-3 text-left transition hover:bg-white/20 dark:bg-white/5"
+          onClick={() => { window.location.hash = "#/activity"; }}
         >
           <span
             className={
-              item.tone === "success"
-                ? "mt-1 size-2 rounded-full bg-emerald-400"
-                : item.tone === "warning"
+              item.severity === "warning"
                   ? "mt-1 size-2 rounded-full bg-amber-400"
-                  : "mt-1 size-2 rounded-full bg-cyan-400"
+                  : item.severity === "error"
+                    ? "mt-1 size-2 rounded-full bg-rose-400"
+                    : "mt-1 size-2 rounded-full bg-cyan-400"
             }
           />
           <span className="grid flex-1 gap-1">
-            <span className="text-sm font-semibold text-slate-800 dark:text-white/90">{item.title}</span>
-            <span className="text-xs text-slate-500 dark:text-white/50">{item.time} ago</span>
+            <span className="text-sm font-semibold text-slate-800 dark:text-white/90">{item.message}</span>
+            <span className="text-xs text-slate-500 dark:text-white/50">{formatRelativeTime(item.created_at)}</span>
           </span>
         </button>
       ))}
@@ -107,22 +132,45 @@ function NotificationPanel() {
   );
 }
 
-function UserProfileMenu() {
+function UserProfileMenu({ name, role }: { name: string; role: string }) {
   return (
     <div className="space-y-2">
       <div className="rounded-[8px] border border-white/10 bg-white/10 p-3 dark:bg-white/5">
-        <p className="text-sm font-bold text-slate-900 dark:text-white">Maya Chen</p>
-        <p className="text-xs text-slate-500 dark:text-white/50">Portfolio Operations</p>
+        <p className="text-sm font-bold text-slate-900 dark:text-white">{name}</p>
+        <p className="text-xs capitalize text-slate-500 dark:text-white/50">{role}</p>
       </div>
-      {["Profile", "Billing", "Security", "Sign out"].map((item) => (
+      {[
+        ["Dashboard", "#/overview"],
+        ["Trading", "#/trading"],
+        ["Audit Log", "#/activity/audit"]
+      ].map(([item, href]) => (
         <button
           key={item}
           type="button"
           className="w-full rounded-[8px] px-3 py-2 text-left text-sm font-semibold text-slate-700 transition hover:bg-white/20 dark:text-white/75 dark:hover:bg-white/10"
+          onClick={() => { window.location.hash = href; }}
         >
           {item}
         </button>
       ))}
     </div>
   );
+}
+
+function formatRelativeTime(value: string) {
+  const timestamp = new Date(value).getTime();
+  if (Number.isNaN(timestamp)) {
+    return "Just now";
+  }
+
+  const minutes = Math.floor(Math.max(0, Date.now() - timestamp) / 60000);
+  if (minutes < 1) {
+    return "Just now";
+  }
+  if (minutes < 60) {
+    return `${minutes}m ago`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  return hours < 24 ? `${hours}h ago` : `${Math.floor(hours / 24)}d ago`;
 }

@@ -289,3 +289,27 @@ class AuditEventRead(BaseModel):
     message: str
     metadata: dict
     created_at: datetime
+
+
+class NavigationChildRead(BaseModel):
+    label: str
+    href: str
+    icon: str
+    permission: str
+    badge: str | None = None
+    badge_color: str | None = None
+
+
+class NavigationItemRead(BaseModel):
+    label: str
+    href: str
+    icon: str
+    permission: str
+    children: list[NavigationChildRead] = Field(default_factory=list)
+
+
+class CurrentUserRead(BaseModel):
+    id: str
+    name: str
+    role: str
+    permissions: list[str]
