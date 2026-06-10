@@ -27,6 +27,9 @@ const TradingPage = lazy(() =>
 const PortfolioPage = lazy(() =>
   import("./pages/PortfolioPage").then((module) => ({ default: module.PortfolioPage }))
 );
+const PaperTradingPage = lazy(() =>
+  import("./pages/PaperTradingPage").then((module) => ({ default: module.PaperTradingPage }))
+);
 const ActivityPage = lazy(() =>
   import("./pages/ActivityPage").then((module) => ({ default: module.ActivityPage }))
 );
@@ -73,6 +76,7 @@ function renderRoute(route: string) {
   if (route.startsWith("ai-models")) return <AiModelsPage />;
   if (route.startsWith("risk-settings")) return <RiskSettingsPage />;
   if (route.startsWith("portfolio") || route === "trading/portfolio") return <PortfolioPage />;
+  if (route.startsWith("paper") || route === "trading/paper") return <PaperTradingPage />;
   if (route.startsWith("orders") || route === "trading/orders") return <OrdersPage />;
   if (route.startsWith("positions") || route === "trading/positions") return <PositionsPage />;
   if (route.startsWith("trade-history")) return <TradeHistoryPage />;

@@ -69,6 +69,15 @@ from app.schemas.portfolio import (
     PortfolioPnlResponse,
     PortfolioSummaryResponse,
 )
+from app.schemas.paper_trading import (
+    PaperTradingAccountRead,
+    PaperTradingOrderCreate,
+    PaperTradingOrderRead,
+    PaperTradingPerformanceResponse,
+    PaperTradingPositionRead,
+    PaperTradingResetRequest,
+    PaperTradingResetResponse,
+)
 from app.core.config import settings
 from app.core.security import create_access_token, create_refresh_token, decode_jwt, decode_refresh_token
 from app.db.auth import get_current_user as require_current_user, require_permission, require_role
@@ -132,6 +141,7 @@ from app.services.portfolio import (
     get_portfolio_pnl,
     get_portfolio_summary,
 )
+from app.services.paper_trading import PaperTradingService
 from app.services.signals import generate_signals, list_signals
 from app.workers.tasks import refresh_market_data
 
@@ -197,6 +207,12 @@ NAVIGATION_ITEMS = [
                 "href": "#/trading/portfolio",
                 "icon": "wallet",
                 "permission": "portfolio:view",
+            },
+            {
+                "label": "Paper Trading",
+                "href": "#/trading/paper",
+                "icon": "activity",
+                "permission": "orders:create",
             },
             {
                 "label": "Orders",
@@ -895,6 +911,77 @@ def post_ai_model_predict(
         return AIModelPrediction.model_validate(predict_ai_model(db, model_id))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/paper/account", response_model=PaperTradingAccountRead, tags=["paper-trading"])
+def get_paper_account(
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("portfolio:view")),
+) -> PaperTradingAccountRead:
+    return PaperTradingService(db).get_account()
+
+
+@router.post("/paper/orders", response_model=PaperTradingOrderRead, tags=["paper-trading"])
+def post_paper_trading_order(
+    payload: PaperTradingOrderCreate,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("orders:create")),
+) -> PaperTradingOrderRead:
+    try:
+        return PaperTradingService(db).create_order(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/paper/orders", response_model=list[PaperTradingOrderRead], tags=["paper-trading"])
+def get_paper_trading_orders(
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("orders:view")),
+) -> list[PaperTradingOrderRead]:
+    return PaperTradingService(db).list_orders(limit)
+
+
+@router.get("/paper/positions", response_model=list[PaperTradingPositionRead], tags=["paper-trading"])
+def get_paper_trading_positions(
+    status: str = Query("open", pattern="^(open|closed|all)$"),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("positions:view")),
+) -> list[PaperTradingPositionRead]:
+    return PaperTradingService(db).list_positions(status)
+
+
+@router.post("/paper/positions/{position_id}/close", response_model=PaperTradingPositionRead, tags=["paper-trading"])
+def post_close_paper_trading_position(
+    position_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("positions:manage")),
+) -> PaperTradingPositionRead:
+    try:
+        position = PaperTradingService(db).close_position(position_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if position is None:
+        raise HTTPException(status_code=404, detail="Paper position not found")
+    return position
+
+
+@router.get("/paper/performance", response_model=PaperTradingPerformanceResponse, tags=["paper-trading"])
+def get_paper_trading_performance(
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("portfolio:view")),
+) -> PaperTradingPerformanceResponse:
+    return PaperTradingService(db).performance()
+
+
+@router.post("/paper/reset", response_model=PaperTradingResetResponse, tags=["paper-trading"])
+def post_paper_trading_reset(
+    payload: PaperTradingResetRequest | None = None,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("orders:manage")),
+) -> PaperTradingResetResponse:
+    payload = payload or PaperTradingResetRequest()
+    return PaperTradingService(db).reset(payload.starting_balance)
 
 
 @router.get("/orders", response_model=list[PaperOrderRead], tags=["paper-trading"])

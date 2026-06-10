@@ -285,6 +285,39 @@ def test_portfolio_management_endpoints_return_aggregate_shapes() -> None:
     assert "total_pnl" in pnl_response.json()
 
 
+def test_paper_trading_engine_simulates_orders_positions_and_reset() -> None:
+    with TestClient(app) as client:
+        headers = auth_headers(client)
+        account_response = client.get("/api/paper/account", headers=headers)
+        order_response = client.post(
+            "/api/paper/orders",
+            headers=headers,
+            json={"symbol": "BTCUSDT", "side": "buy", "order_type": "market", "quantity": 0.01},
+        )
+        orders_response = client.get("/api/paper/orders", headers=headers)
+        positions_response = client.get("/api/paper/positions", headers=headers)
+        performance_response = client.get("/api/paper/performance", headers=headers)
+        position_id = positions_response.json()[0]["id"]
+        close_response = client.post(f"/api/paper/positions/{position_id}/close", headers=headers)
+        reset_response = client.post("/api/paper/reset", headers=headers, json={"starting_balance": 10000})
+
+    assert account_response.status_code == 200
+    assert account_response.json()["paper_equity"] >= 0
+    assert order_response.status_code == 200, order_response.text
+    assert order_response.json()["execution_mode"] == "paper"
+    assert order_response.json()["status"] == "filled"
+    assert orders_response.status_code == 200
+    assert orders_response.json()[0]["symbol"] == "BTCUSDT"
+    assert positions_response.status_code == 200
+    assert positions_response.json()[0]["status"] == "open"
+    assert performance_response.status_code == 200
+    assert performance_response.json()["points"]
+    assert close_response.status_code == 200
+    assert close_response.json()["status"] == "closed"
+    assert reset_response.status_code == 200
+    assert reset_response.json()["account"]["cash_balance"] == 10000
+
+
 def test_ai_training_pipeline_versions_deploys_compares_and_predicts() -> None:
     with TestClient(app) as client:
         headers = auth_headers(client)

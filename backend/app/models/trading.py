@@ -263,6 +263,47 @@ class PaperPosition(Base):
     symbol_ref: Mapped[Symbol] = relationship(back_populates="positions")
 
 
+class PaperAccount(Base):
+    __tablename__ = "paper_accounts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(120), unique=True, default="default")
+    starting_balance: Mapped[float] = mapped_column(Float, default=10000.0)
+    cash_balance: Mapped[float] = mapped_column(Float, default=10000.0)
+    realized_pnl: Mapped[float] = mapped_column(Float, default=0.0)
+    status: Mapped[str] = mapped_column(String(16), default="active", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    reset_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    ledger_entries: Mapped[list["PaperTradeLedger"]] = relationship(back_populates="account_ref")
+
+
+class PaperTradeLedger(Base):
+    __tablename__ = "paper_trade_ledger"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("paper_accounts.id", ondelete="CASCADE"), index=True)
+    order_id: Mapped[int | None] = mapped_column(ForeignKey("paper_orders.id", ondelete="SET NULL"), nullable=True, index=True)
+    position_id: Mapped[int | None] = mapped_column(ForeignKey("paper_positions.id", ondelete="SET NULL"), nullable=True, index=True)
+    symbol_id: Mapped[int | None] = mapped_column(ForeignKey("symbols.id", ondelete="SET NULL"), nullable=True, index=True)
+    event_type: Mapped[str] = mapped_column(String(32), index=True)
+    side: Mapped[str] = mapped_column(String(12), default="account")
+    quantity: Mapped[float] = mapped_column(Float, default=0.0)
+    price: Mapped[float] = mapped_column(Float, default=0.0)
+    realized_pnl: Mapped[float] = mapped_column(Float, default=0.0)
+    unrealized_pnl: Mapped[float] = mapped_column(Float, default=0.0)
+    balance_after: Mapped[float] = mapped_column(Float, default=0.0)
+    equity_after: Mapped[float] = mapped_column(Float, default=0.0)
+    event_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+
+    account_ref: Mapped[PaperAccount] = relationship(back_populates="ledger_entries")
+    symbol_ref: Mapped[Symbol | None] = relationship()
+    order_ref: Mapped[PaperOrder | None] = relationship()
+    position_ref: Mapped[PaperPosition | None] = relationship()
+
+
 class AuditEvent(Base):
     __tablename__ = "audit_events"
 
