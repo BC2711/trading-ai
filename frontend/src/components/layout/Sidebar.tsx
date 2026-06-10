@@ -117,7 +117,8 @@ const fallbackNavItems: NavItem[] = [
     permission: "risk-settings:view",
     children: [
       { label: "Risk Settings", icon: SlidersHorizontal, href: "#/risk-settings", permission: "risk-settings:view" },
-      { label: "Risk Analytics", icon: Activity, href: "#/risk-analytics", permission: "risk-settings:view" }
+      { label: "Risk Analytics", icon: Activity, href: "#/risk-analytics", permission: "risk-settings:view" },
+      { label: "Monte Carlo", icon: Activity, href: "#/risk/monte-carlo", permission: "risk-settings:view" }
     ]
   },
   {

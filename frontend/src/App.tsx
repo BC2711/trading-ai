@@ -36,6 +36,9 @@ const BrokerConnectionsPage = lazy(() =>
 const RiskAnalyticsPage = lazy(() =>
   import("./pages/RiskAnalyticsPage").then((module) => ({ default: module.RiskAnalyticsPage }))
 );
+const MonteCarloPage = lazy(() =>
+  import("./pages/MonteCarloPage").then((module) => ({ default: module.MonteCarloPage }))
+);
 const ActivityPage = lazy(() =>
   import("./pages/ActivityPage").then((module) => ({ default: module.ActivityPage }))
 );
@@ -82,6 +85,7 @@ function renderRoute(route: string) {
   if (route.startsWith("ai-models")) return <AiModelsPage />;
   if (route.startsWith("risk-settings")) return <RiskSettingsPage />;
   if (route.startsWith("risk-analytics")) return <RiskAnalyticsPage />;
+  if (route.startsWith("risk/monte-carlo") || route.startsWith("monte-carlo")) return <MonteCarloPage />;
   if (route.startsWith("portfolio") || route === "trading/portfolio") return <PortfolioPage />;
   if (route.startsWith("paper") || route === "trading/paper") return <PaperTradingPage />;
   if (route.startsWith("brokers") || route === "trading/brokers") return <BrokerConnectionsPage />;

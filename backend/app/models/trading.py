@@ -320,6 +320,29 @@ class AuditEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
 
 
+class MonteCarloRun(Base):
+    __tablename__ = "monte_carlo_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    starting_balance: Mapped[float] = mapped_column(Float)
+    win_rate: Mapped[float] = mapped_column(Float)
+    average_win: Mapped[float] = mapped_column(Float)
+    average_loss: Mapped[float] = mapped_column(Float)
+    number_of_trades: Mapped[int] = mapped_column(Integer)
+    number_of_simulations: Mapped[int] = mapped_column(Integer)
+    risk_per_trade: Mapped[float] = mapped_column(Float)
+    probability_of_ruin: Mapped[float] = mapped_column(Float)
+    expected_drawdown: Mapped[float] = mapped_column(Float)
+    maximum_drawdown: Mapped[float] = mapped_column(Float)
+    best_case: Mapped[float] = mapped_column(Float)
+    worst_case: Mapped[float] = mapped_column(Float)
+    median_case: Mapped[float] = mapped_column(Float)
+    confidence_intervals: Mapped[dict] = mapped_column(JSON, default=dict)
+    ending_equity_distribution: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    risk_recommendation: Mapped[str] = mapped_column(String(800))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+
+
 class User(Base):
     __tablename__ = "users"
 

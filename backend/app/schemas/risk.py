@@ -1,4 +1,5 @@
 from pydantic import BaseModel, Field
+from datetime import datetime
 
 
 class RiskLimitsRead(BaseModel):
@@ -103,3 +104,42 @@ class RiskSummaryResponse(BaseModel):
     circuit_breaker_enabled: bool
     recent_rejected_trades: list[RiskRejectedTradeRead] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+
+
+class MonteCarloRequest(BaseModel):
+    starting_balance: float = Field(default=10000.0, gt=0)
+    win_rate: float = Field(default=0.5, ge=0, le=1)
+    average_win: float = Field(default=1.5, gt=0)
+    average_loss: float = Field(default=1.0, gt=0)
+    number_of_trades: int = Field(default=100, ge=1, le=5000)
+    number_of_simulations: int = Field(default=1000, ge=1000, le=20000)
+    risk_per_trade: float = Field(default=0.01, gt=0, le=1)
+    ruin_threshold: float = Field(default=0.5, gt=0, le=1)
+
+
+class MonteCarloDistributionPoint(BaseModel):
+    bucket: str
+    count: int
+    min_equity: float
+    max_equity: float
+
+
+class MonteCarloResponse(BaseModel):
+    id: int
+    starting_balance: float
+    win_rate: float
+    average_win: float
+    average_loss: float
+    number_of_trades: int
+    number_of_simulations: int
+    risk_per_trade: float
+    probability_of_ruin: float
+    expected_drawdown: float
+    maximum_drawdown: float
+    best_case: float
+    worst_case: float
+    median_case: float
+    confidence_intervals: dict
+    ending_equity_distribution: list[MonteCarloDistributionPoint]
+    risk_recommendation: str
+    created_at: datetime

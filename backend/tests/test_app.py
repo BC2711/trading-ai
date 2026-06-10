@@ -394,6 +394,35 @@ def test_advanced_risk_engine_endpoints() -> None:
     assert disable_response.json()["circuit_breaker_enabled"] is False
 
 
+def test_monte_carlo_risk_simulation_persists_and_returns_distribution() -> None:
+    with TestClient(app) as client:
+        headers = auth_headers(client)
+        run_response = client.post(
+            "/api/risk/monte-carlo",
+            headers=headers,
+            json={
+                "starting_balance": 10000,
+                "win_rate": 0.55,
+                "average_win": 1.4,
+                "average_loss": 1.0,
+                "number_of_trades": 50,
+                "number_of_simulations": 1000,
+                "risk_per_trade": 0.01,
+            },
+        )
+        assert run_response.status_code == 200, run_response.text
+        run = run_response.json()
+        lookup_response = client.get(f"/api/risk/monte-carlo/{run['id']}", headers=headers)
+
+    assert run["id"] > 0
+    assert 0 <= run["probability_of_ruin"] <= 1
+    assert run["ending_equity_distribution"]
+    assert "ending_equity" in run["confidence_intervals"]
+    assert run["risk_recommendation"]
+    assert lookup_response.status_code == 200
+    assert lookup_response.json()["id"] == run["id"]
+
+
 def test_ai_training_pipeline_versions_deploys_compares_and_predicts() -> None:
     with TestClient(app) as client:
         headers = auth_headers(client)

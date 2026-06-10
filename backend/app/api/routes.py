@@ -86,6 +86,8 @@ from app.schemas.risk import (
     PositionSizeResponse,
     RiskLimitsRead,
     RiskLimitsUpdate,
+    MonteCarloRequest,
+    MonteCarloResponse,
     RiskSummaryResponse,
     RiskTradeValidationRequest,
     RiskTradeValidationResponse,
@@ -171,6 +173,7 @@ from app.services.risk import (
     update_limits as update_risk_limits,
     validate_trade_request,
 )
+from app.services.risk.monte_carlo import get_monte_carlo_run, run_monte_carlo
 from app.services.execution.brokers import BrokerAdapterError, BrokerNotImplementedError, BrokerService
 from app.services.signals import generate_signals, list_signals
 from app.workers.tasks import refresh_market_data
@@ -284,6 +287,12 @@ NAVIGATION_ITEMS = [
             {
                 "label": "Risk Analytics",
                 "href": "#/risk-analytics",
+                "icon": "activity",
+                "permission": "risk-settings:view",
+            },
+            {
+                "label": "Monte Carlo",
+                "href": "#/risk/monte-carlo",
                 "icon": "activity",
                 "permission": "risk-settings:view",
             },
@@ -811,6 +820,27 @@ def post_disable_circuit_breaker(
     _user: User = Depends(require_permission("risk-settings:update")),
 ) -> RiskLimitsRead:
     return set_circuit_breaker(db, False)
+
+
+@router.post("/risk/monte-carlo", response_model=MonteCarloResponse, tags=["risk"])
+def post_risk_monte_carlo(
+    payload: MonteCarloRequest,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("risk-settings:view")),
+) -> MonteCarloResponse:
+    return run_monte_carlo(db, payload)
+
+
+@router.get("/risk/monte-carlo/{run_id}", response_model=MonteCarloResponse, tags=["risk"])
+def get_risk_monte_carlo(
+    run_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("risk-settings:view")),
+) -> MonteCarloResponse:
+    run = get_monte_carlo_run(db, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Monte Carlo run not found")
+    return run
 
 
 @router.get("/backtests", response_model=list[BacktestRunRead], tags=["backtests"])
