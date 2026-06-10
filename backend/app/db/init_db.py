@@ -4,6 +4,7 @@ import time
 from sqlalchemy.exc import SQLAlchemyError
 
 from app import models  # noqa: F401
+from app.db.schema_compat import ensure_schema_compatibility
 from app.db.session import Base, SessionLocal, engine
 from app.services.repository import seed_defaults
 
@@ -14,6 +15,7 @@ def init_db(retries: int = 8, delay_seconds: float = 1.5) -> None:
     for attempt in range(1, retries + 1):
         try:
             Base.metadata.create_all(bind=engine)
+            ensure_schema_compatibility(engine)
             with SessionLocal() as db:
                 seed_defaults(db)
             return

@@ -2,8 +2,10 @@ from configparser import ConfigParser
 
 import pytest
 from pydantic import ValidationError
+from sqlalchemy import create_engine, inspect, text
 
 from app.core.config import Settings
+from app.db.schema_compat import ensure_schema_compatibility
 
 
 def test_default_database_url_uses_local_postgres(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -19,6 +21,34 @@ def test_alembic_fallback_database_url_matches_local_postgres() -> None:
     config.read("alembic.ini")
 
     assert config["alembic"]["sqlalchemy.url"] == "postgresql+psycopg://trading:trading@localhost:5432/trading"
+
+
+def test_schema_compatibility_adds_missing_risk_setting_columns(tmp_path) -> None:
+    database_path = tmp_path / "legacy.sqlite"
+    engine = create_engine(f"sqlite:///{database_path.as_posix()}")
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                CREATE TABLE risk_settings (
+                    id INTEGER PRIMARY KEY,
+                    name VARCHAR(120) NOT NULL,
+                    max_risk_per_trade FLOAT NOT NULL,
+                    max_daily_loss FLOAT NOT NULL,
+                    max_open_trades INTEGER NOT NULL,
+                    max_symbol_exposure FLOAT NOT NULL,
+                    status VARCHAR(16) NOT NULL,
+                    created_at DATETIME NOT NULL
+                )
+                """
+            )
+        )
+
+    ensure_schema_compatibility(engine)
+
+    columns = {column["name"] for column in inspect(engine).get_columns("risk_settings")}
+    assert {"max_weekly_loss", "max_drawdown", "max_leverage"}.issubset(columns)
+    assert {"max_consecutive_losses", "emergency_stop", "live_trading_enabled"}.issubset(columns)
 
 
 def test_production_requires_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
