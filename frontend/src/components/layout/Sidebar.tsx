@@ -99,6 +99,16 @@ const fallbackNavItems: NavItem[] = [
     ]
   },
   {
+    label: "AI",
+    icon: BrainCircuit,
+    href: "#/ai/model-registry",
+    permission: "ai-models:view",
+    children: [
+      { label: "Model Training", icon: Activity, href: "#/ai/model-training", permission: "ai-models:manage" },
+      { label: "Model Registry", icon: BrainCircuit, href: "#/ai/model-registry", permission: "ai-models:view" }
+    ]
+  },
+  {
     label: "Trading",
     icon: TrendingUp,
     href: "#/trading",

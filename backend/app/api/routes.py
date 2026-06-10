@@ -5,6 +5,8 @@ from app.db.deps import get_db
 from app.models import MarketCandle, MarketOrderBookSnapshot, MarketTick, MarketTrade, Signal
 from app.schemas.trading import (
     AIModelPrediction,
+    AIPredictionRequest,
+    AIModelEvaluationRead,
     AIModelRead,
     AIModelCompareRequest,
     AIModelComparison,
@@ -140,13 +142,14 @@ from app.services.ai.advisor import analyze_signal, analysis_to_response, get_ai
 from app.services.ai.training import predict as predict_ai_model
 from app.services.ai.training import train_model
 from app.services.ai.training import compare_models, deploy_model, disable_model, retrain_model
+from app.services.ai.inference import PredictionService
+from app.services.ai.registry import ModelRegistryService
 from app.services.admin import (
     authenticate_user,
     create_credential,
     create_notification,
     delete_credential,
     delete_user,
-    list_ai_models,
     list_credentials,
     list_notifications,
     list_system_logs,
@@ -248,6 +251,16 @@ NAVIGATION_ITEMS = [
             {"label": "Backtests", "href": "#/backtests", "icon": "activity", "permission": "backtests:view"},
             {"label": "Walk-Forward Testing", "href": "#/backtests/walk-forward", "icon": "activity", "permission": "backtests:run"},
             {"label": "AI Models", "href": "#/ai-models", "icon": "brain", "permission": "ai-models:view"},
+        ],
+    },
+    {
+        "label": "AI",
+        "href": "#/ai/model-registry",
+        "icon": "brain",
+        "permission": "ai-models:view",
+        "children": [
+            {"label": "Model Training", "href": "#/ai/model-training", "icon": "activity", "permission": "ai-models:manage"},
+            {"label": "Model Registry", "href": "#/ai/model-registry", "icon": "brain", "permission": "ai-models:view"},
         ],
     },
     {
@@ -1115,7 +1128,30 @@ def get_ai_models(
     db: Session = Depends(get_db),
     _user: User = Depends(require_permission("ai-models:view")),
 ) -> list[AIModelRead]:
-    return [AIModelRead.model_validate(model) for model in list_ai_models(db)]
+    return [AIModelRead.model_validate(model) for model in ModelRegistryService(db).list_models()]
+
+
+@router.post("/ai/train", response_model=AIModelRead, tags=["ai"])
+def post_ai_train(
+    payload: AIModelTrainRequest,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("ai-models:manage")),
+) -> AIModelRead:
+    try:
+        return AIModelRead.model_validate(
+            train_model(
+                db,
+                name=payload.name,
+                symbol=payload.symbol,
+                timeframe=payload.timeframe,
+                lookback=payload.lookback,
+                model_type=payload.model_type,
+                training_params=payload.training_params,
+                selected_features=payload.selected_features or None,
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/ai/models/train", response_model=AIModelRead, tags=["ai"])
@@ -1134,10 +1170,23 @@ def post_ai_model_train(
                 lookback=payload.lookback,
                 model_type=payload.model_type,
                 training_params=payload.training_params,
+                selected_features=payload.selected_features or None,
             )
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/ai/models/{model_id}", response_model=AIModelRead, tags=["ai"])
+def get_ai_model(
+    model_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("ai-models:view")),
+) -> AIModelRead:
+    try:
+        return AIModelRead.model_validate(ModelRegistryService(db).get_model(model_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/ai/models/{model_id}/retrain", response_model=AIModelRead, tags=["ai"])
@@ -1168,6 +1217,18 @@ def post_ai_model_deploy(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.post("/ai/models/{model_id}/activate", response_model=AIModelRead, tags=["ai"])
+def post_ai_model_activate(
+    model_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("ai-models:manage")),
+) -> AIModelRead:
+    try:
+        return AIModelRead.model_validate(ModelRegistryService(db).activate(model_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.post("/ai/models/{model_id}/disable", response_model=AIModelRead, tags=["ai"])
 def post_ai_model_disable(
     model_id: int,
@@ -1176,6 +1237,18 @@ def post_ai_model_disable(
 ) -> AIModelRead:
     try:
         return AIModelRead.model_validate(disable_model(db, model_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/ai/evaluation/{model_id}", response_model=AIModelEvaluationRead, tags=["ai"])
+def get_ai_model_evaluation(
+    model_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("ai-models:view")),
+) -> AIModelEvaluationRead:
+    try:
+        return AIModelEvaluationRead.model_validate(ModelRegistryService(db).evaluation(model_id))
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -1200,6 +1273,25 @@ def post_ai_model_predict(
 ) -> AIModelPrediction:
     try:
         return AIModelPrediction.model_validate(predict_ai_model(db, model_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/ai/predict", response_model=AIModelPrediction, tags=["ai"])
+def post_ai_predict(
+    payload: AIPredictionRequest,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("ai-models:view")),
+) -> AIModelPrediction:
+    try:
+        return AIModelPrediction.model_validate(
+            PredictionService(db).predict(
+                symbol=payload.symbol,
+                timeframe=payload.timeframe,
+                model_id=payload.model_id,
+                model_type=payload.model_type,
+            )
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

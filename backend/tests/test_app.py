@@ -573,6 +573,26 @@ def test_ai_training_pipeline_versions_deploys_compares_and_predicts() -> None:
         retrained = retrain_response.json()
 
         deploy_response = client.post(f"/api/ai/models/{retrained['id']}/deploy", headers=headers)
+        activate_response = client.post(f"/api/ai/models/{retrained['id']}/activate", headers=headers)
+        detail_response = client.get(f"/api/ai/models/{retrained['id']}", headers=headers)
+        evaluation_response = client.get(f"/api/ai/evaluation/{retrained['id']}", headers=headers)
+        active_predict_response = client.post(
+            "/api/ai/predict",
+            headers=headers,
+            json={"symbol": "BTCUSDT", "timeframe": "15m", "model_type": "random_forest"},
+        )
+        pipeline_train_response = client.post(
+            "/api/ai/train",
+            headers=headers,
+            json={
+                "name": "Pipeline Feature Selection Model",
+                "symbol": "BTCUSDT",
+                "timeframe": "15m",
+                "lookback": 240,
+                "model_type": "random_forest",
+                "selected_features": ["rsi_14", "macd", "ema_20", "sma_20", "bb_width", "volume_ratio"],
+            },
+        )
         compare_response = client.post(
             "/api/ai/models/compare",
             headers=headers,
@@ -590,6 +610,16 @@ def test_ai_training_pipeline_versions_deploys_compares_and_predicts() -> None:
     assert deploy_response.status_code == 200
     assert deploy_response.json()["deployed"] is True
     assert deploy_response.json()["status"] == "deployed"
+    assert activate_response.status_code == 200
+    assert activate_response.json()["deployed"] is True
+    assert detail_response.status_code == 200
+    assert detail_response.json()["id"] == retrained["id"]
+    assert evaluation_response.status_code == 200
+    assert "profit_factor" in evaluation_response.json()
+    assert active_predict_response.status_code == 200
+    assert active_predict_response.json()["model_id"] == retrained["id"]
+    assert pipeline_train_response.status_code == 200, pipeline_train_response.text
+    assert pipeline_train_response.json()["feature_names"] == ["rsi_14", "macd", "ema_20", "sma_20", "bb_width", "volume_ratio"]
     assert compare_response.status_code == 200
     assert [item["rank"] for item in compare_response.json()] == [1, 2]
     assert predict_response.status_code == 200

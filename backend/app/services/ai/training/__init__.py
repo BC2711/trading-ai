@@ -19,6 +19,7 @@ def train_model(
     lookback: int,
     model_type: str = "random_forest",
     training_params: dict | None = None,
+    selected_features: list[str] | None = None,
 ) -> AIModelMetadata:
     return TrainingService(db).train(
         name=name,
@@ -27,6 +28,7 @@ def train_model(
         lookback=lookback,
         model_type=model_type,
         training_params=training_params,
+        selected_features=selected_features,
     )
 
 

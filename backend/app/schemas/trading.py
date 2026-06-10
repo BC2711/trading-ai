@@ -543,6 +543,7 @@ class AIModelTrainRequest(BaseModel):
     lookback: int = Field(default=240, ge=80, le=1000)
     model_type: str = Field(default="random_forest", pattern="^(random_forest|xgboost|lightgbm|lstm|gru|transformer)$")
     training_params: dict = Field(default_factory=dict)
+    selected_features: list[str] = Field(default_factory=list)
 
 
 class AIModelRetrainRequest(BaseModel):
@@ -576,6 +577,34 @@ class AIModelPrediction(BaseModel):
     direction: str
     confidence: float
     features: dict
+
+
+class AIPredictionRequest(BaseModel):
+    symbol: str = "BTCUSDT"
+    timeframe: str | None = "15m"
+    model_id: int | None = None
+    model_type: str | None = Field(default=None, pattern="^(random_forest|xgboost|lightgbm|lstm|gru|transformer)$")
+
+
+class AIModelEvaluationRead(BaseModel):
+    model_id: int
+    name: str
+    symbol: str
+    timeframe: str
+    algorithm: str
+    version: int
+    status: str
+    deployed: bool
+    accuracy: float
+    precision: float
+    recall: float
+    f1: float
+    profit_factor: float
+    roc_auc: float
+    samples: int
+    feature_rows: int
+    feature_count: int
+    metrics: dict = Field(default_factory=dict)
 
 
 class AIModelCompareRequest(BaseModel):

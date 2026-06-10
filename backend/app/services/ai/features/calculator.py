@@ -54,10 +54,11 @@ class FeatureDataset:
 
 
 class FeatureCalculator:
-    def build_dataset(self, candles: list[MarketCandle]) -> FeatureDataset:
+    def build_dataset(self, candles: list[MarketCandle], selected_features: list[str] | None = None) -> FeatureDataset:
         if len(candles) < 80:
             raise ValueError("At least 80 candles are required for feature engineering")
 
+        feature_columns = validate_feature_columns(selected_features)
         frame = candles_to_frame(candles)
         enriched = add_features(frame)
         enriched["target"] = (enriched["close"].shift(-1) > enriched["close"]).astype(int)
@@ -68,15 +69,15 @@ class FeatureCalculator:
 
         training_rows = enriched.iloc[:-1]
         latest_row = enriched.iloc[-1]
-        features = training_rows[FEATURE_COLUMNS].astype("float64").values.tolist()
+        features = training_rows[feature_columns].astype("float64").values.tolist()
         labels = training_rows["target"].astype(int).tolist()
-        latest_features = latest_row[FEATURE_COLUMNS].astype("float64").tolist()
-        latest_feature_map = {name: round(float(value), 8) for name, value in zip(FEATURE_COLUMNS, latest_features)}
+        latest_features = latest_row[feature_columns].astype("float64").tolist()
+        latest_feature_map = {name: round(float(value), 8) for name, value in zip(feature_columns, latest_features)}
 
         return FeatureDataset(
             features=features,
             labels=labels,
-            feature_names=FEATURE_COLUMNS,
+            feature_names=feature_columns,
             latest_features=latest_features,
             latest_feature_map=latest_feature_map,
             rows=len(features),
@@ -270,3 +271,12 @@ def trend_direction(ema_fast: pd.Series, ema_slow: pd.Series, close: pd.Series, 
     direction = direction.where(~((ema_fast > ema_slow) & (close > previous_close)), 1.0)
     direction = direction.where(~((ema_fast < ema_slow) & (close < previous_close)), -1.0)
     return direction
+
+
+def validate_feature_columns(selected_features: list[str] | None = None) -> list[str]:
+    if not selected_features:
+        return FEATURE_COLUMNS
+    unknown = [name for name in selected_features if name not in FEATURE_COLUMNS]
+    if unknown:
+        raise ValueError(f"Unsupported feature columns: {', '.join(unknown)}")
+    return list(dict.fromkeys(selected_features))

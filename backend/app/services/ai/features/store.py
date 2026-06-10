@@ -12,8 +12,8 @@ class FeatureService:
         self.db = db
         self.calculator = FeatureCalculator()
 
-    def build_dataset(self, candles: list[MarketCandle]) -> FeatureDataset:
-        return self.calculator.build_dataset(candles)
+    def build_dataset(self, candles: list[MarketCandle], selected_features: list[str] | None = None) -> FeatureDataset:
+        return self.calculator.build_dataset(candles, selected_features=selected_features)
 
     def calculate_latest(self, candles: list[MarketCandle]) -> dict[str, float]:
         return self.calculator.latest_feature_map(candles)

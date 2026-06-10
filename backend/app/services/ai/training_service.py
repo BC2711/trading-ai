@@ -27,6 +27,7 @@ class TrainingService:
         model_type: str = "random_forest",
         training_params: dict | None = None,
         parent_model_id: int | None = None,
+        selected_features: list[str] | None = None,
     ) -> AIModelMetadata:
         seed_defaults(self.db)
         symbol_model = get_symbol(self.db, symbol)
@@ -35,7 +36,7 @@ class TrainingService:
 
         normalized_type = normalize_model_type(model_type)
         candles = list_candles(self.db, symbol_model.symbol, timeframe, lookback)
-        dataset = self.feature_service.build_dataset(candles)
+        dataset = self.feature_service.build_dataset(candles, selected_features=selected_features)
         if len(set(dataset.labels)) < 2:
             raise ValueError("Not enough varied candle history to train a model")
 
@@ -55,6 +56,7 @@ class TrainingService:
                 "feature_rows": dataset.rows,
                 "feature_count": len(dataset.feature_names),
                 "model_type": normalized_type,
+                "profit_factor": profit_factor_from_predictions(test_labels, predictions),
             }
         )
 
@@ -177,7 +179,7 @@ class TrainingService:
     def predict(self, model_id: int) -> dict:
         metadata = self.get_model(model_id)
         candles = list_candles(self.db, metadata.symbol, metadata.timeframe, 240)
-        dataset = self.feature_service.build_dataset(candles)
+        dataset = self.feature_service.build_dataset(candles, selected_features=metadata.feature_names)
         model = self.model_service.load_model(metadata.model_path)
         probability = positive_class_probabilities(model, [dataset.latest_features])[0]
         direction = "buy" if probability >= 0.5 else "sell"
@@ -217,3 +219,9 @@ def positive_class_probabilities(model, features: list[list[float]]) -> list[flo
         return [float(row[1]) if len(row) > 1 else float(row[0]) for row in probabilities]
     predictions = model.predict(features)
     return [float(value) for value in predictions]
+
+
+def profit_factor_from_predictions(labels: list[int], predictions: list[int]) -> float:
+    wins = sum(1 for label, prediction in zip(labels, predictions) if label == prediction)
+    losses = max(1, len(labels) - wins)
+    return round(float(wins / losses), 6)

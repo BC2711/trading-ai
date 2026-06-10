@@ -16,3 +16,27 @@ class ModelEvaluationService:
         else:
             metrics["roc_auc"] = 0.0
         return metrics
+
+
+def evaluation_for_model(model) -> dict:
+    metrics = model.metrics or {}
+    return {
+        "model_id": model.id,
+        "name": model.name,
+        "symbol": model.symbol,
+        "timeframe": model.timeframe,
+        "algorithm": model.model_type,
+        "version": model.version,
+        "status": model.status,
+        "deployed": model.deployed,
+        "accuracy": float(metrics.get("accuracy", 0.0)),
+        "precision": float(metrics.get("precision", 0.0)),
+        "recall": float(metrics.get("recall", 0.0)),
+        "f1": float(metrics.get("f1", 0.0)),
+        "profit_factor": float(metrics.get("profit_factor", 0.0)),
+        "roc_auc": float(metrics.get("roc_auc", 0.0)),
+        "samples": int(metrics.get("samples", 0)),
+        "feature_rows": int(metrics.get("feature_rows", 0)),
+        "feature_count": int(metrics.get("feature_count", 0)),
+        "metrics": metrics,
+    }
