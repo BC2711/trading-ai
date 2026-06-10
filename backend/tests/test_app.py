@@ -318,6 +318,28 @@ def test_paper_trading_engine_simulates_orders_positions_and_reset() -> None:
     assert reset_response.json()["account"]["cash_balance"] == 10000
 
 
+def test_broker_registry_hides_secrets_and_placeholder_execution_is_guarded() -> None:
+    with TestClient(app) as client:
+        headers = auth_headers(client)
+        brokers_response = client.get("/api/brokers", headers=headers)
+        connect_response = client.post("/api/brokers/connect", headers=headers, json={"broker": "binance"})
+        placeholder_order_response = client.post(
+            "/api/brokers/bybit/orders",
+            headers=headers,
+            json={"symbol": "BTCUSDT", "side": "buy", "order_type": "market", "quantity": 0.01},
+        )
+
+    assert brokers_response.status_code == 200
+    brokers = brokers_response.json()
+    assert {"binance", "bybit", "okx", "kucoin", "mt5"}.issubset({broker["name"] for broker in brokers})
+    assert all("api_key" not in broker for broker in brokers)
+    assert all("api_secret" not in broker for broker in brokers)
+    assert all("api_key_configured" in broker for broker in brokers)
+    assert connect_response.status_code == 200
+    assert connect_response.json()["broker"]["name"] == "binance"
+    assert placeholder_order_response.status_code == 501
+
+
 def test_ai_training_pipeline_versions_deploys_compares_and_predicts() -> None:
     with TestClient(app) as client:
         headers = auth_headers(client)

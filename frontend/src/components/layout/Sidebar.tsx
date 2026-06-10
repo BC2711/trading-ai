@@ -105,6 +105,7 @@ const fallbackNavItems: NavItem[] = [
     children: [
       { label: "Portfolio", icon: Wallet, href: "#/trading/portfolio", permission: "portfolio:view" },
       { label: "Paper Trading", icon: Activity, href: "#/trading/paper", permission: "orders:create" },
+      { label: "Broker Connections", icon: KeyRound, href: "#/trading/brokers", permission: "api-credentials:manage" },
       { label: "Orders", icon: Activity, href: "#/trading/orders", permission: "orders:view" },
       { label: "Positions", icon: Wallet, href: "#/trading/positions", permission: "positions:view" },
       { label: "Trade History", icon: Clock3, href: "#/trade-history", permission: "orders:view" }

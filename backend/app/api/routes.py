@@ -69,6 +69,18 @@ from app.schemas.portfolio import (
     PortfolioPnlResponse,
     PortfolioSummaryResponse,
 )
+from app.schemas.brokers import (
+    BrokerBalanceResponse,
+    BrokerCancelResponse,
+    BrokerConnectRequest,
+    BrokerConnectionResponse,
+    BrokerDisconnectRequest,
+    BrokerOrderCreate,
+    BrokerOrderRead,
+    BrokerOrdersResponse,
+    BrokerPositionsResponse,
+    BrokerStatusRead,
+)
 from app.schemas.paper_trading import (
     PaperTradingAccountRead,
     PaperTradingOrderCreate,
@@ -142,6 +154,7 @@ from app.services.portfolio import (
     get_portfolio_summary,
 )
 from app.services.paper_trading import PaperTradingService
+from app.services.execution.brokers import BrokerAdapterError, BrokerNotImplementedError, BrokerService
 from app.services.signals import generate_signals, list_signals
 from app.workers.tasks import refresh_market_data
 
@@ -213,6 +226,12 @@ NAVIGATION_ITEMS = [
                 "href": "#/trading/paper",
                 "icon": "activity",
                 "permission": "orders:create",
+            },
+            {
+                "label": "Broker Connections",
+                "href": "#/trading/brokers",
+                "icon": "key",
+                "permission": "api-credentials:manage",
             },
             {
                 "label": "Orders",
@@ -910,6 +929,116 @@ def post_ai_model_predict(
     try:
         return AIModelPrediction.model_validate(predict_ai_model(db, model_id))
     except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/brokers", response_model=list[BrokerStatusRead], tags=["brokers"])
+def get_brokers(
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("api-credentials:manage")),
+) -> list[BrokerStatusRead]:
+    return BrokerService(db).list_brokers()
+
+
+@router.post("/brokers/connect", response_model=BrokerConnectionResponse, tags=["brokers"])
+def post_broker_connect(
+    payload: BrokerConnectRequest,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("api-credentials:manage")),
+) -> BrokerConnectionResponse:
+    try:
+        return BrokerConnectionResponse(broker=BrokerService(db).connect(payload.broker))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except BrokerAdapterError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/brokers/disconnect", response_model=BrokerConnectionResponse, tags=["brokers"])
+def post_broker_disconnect(
+    payload: BrokerDisconnectRequest,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("api-credentials:manage")),
+) -> BrokerConnectionResponse:
+    try:
+        return BrokerConnectionResponse(broker=BrokerService(db).disconnect(payload.broker))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/brokers/{broker}/balance", response_model=BrokerBalanceResponse, tags=["brokers"])
+def get_broker_balance(
+    broker: str,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("api-credentials:manage")),
+) -> BrokerBalanceResponse:
+    try:
+        return BrokerService(db).balance(broker)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except BrokerAdapterError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/brokers/{broker}/positions", response_model=BrokerPositionsResponse, tags=["brokers"])
+def get_broker_positions(
+    broker: str,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("api-credentials:manage")),
+) -> BrokerPositionsResponse:
+    try:
+        return BrokerService(db).positions(broker)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except BrokerAdapterError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/brokers/{broker}/orders", response_model=BrokerOrdersResponse, tags=["brokers"])
+def get_broker_orders(
+    broker: str,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("api-credentials:manage")),
+) -> BrokerOrdersResponse:
+    try:
+        return BrokerService(db).orders(broker)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except BrokerAdapterError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/brokers/{broker}/orders", response_model=BrokerOrderRead, tags=["brokers"])
+def post_broker_order(
+    broker: str,
+    payload: BrokerOrderCreate,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("api-credentials:manage")),
+) -> BrokerOrderRead:
+    try:
+        return BrokerService(db).place_order(broker, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except BrokerNotImplementedError as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    except BrokerAdapterError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/brokers/{broker}/orders/{order_id}", response_model=BrokerCancelResponse, tags=["brokers"])
+def delete_broker_order(
+    broker: str,
+    order_id: str,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("api-credentials:manage")),
+) -> BrokerCancelResponse:
+    try:
+        return BrokerService(db).cancel_order(broker, order_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except BrokerNotImplementedError as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    except BrokerAdapterError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
