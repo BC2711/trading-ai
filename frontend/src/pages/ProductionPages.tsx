@@ -219,14 +219,18 @@ export function RiskSettingsPage() {
   const risk = riskQuery.data?.[0];
   const updateMutation = useMutation({ mutationFn: () => risk ? updateRiskSettings(risk.id, { emergency_stop: !risk.emergency_stop }) : Promise.reject(new Error("No risk settings")), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["risk-settings"] }) });
   return (
-    <EntityPage title="Risk Settings" icon={ShieldCheck} loading={riskQuery.isLoading} error={riskQuery.isError} action={<Button variant={risk?.emergency_stop ? "success" : "danger"} loading={updateMutation.isPending} disabled={!risk} onClick={() => updateMutation.mutate()}>{risk?.emergency_stop ? "Clear kill switch" : "Emergency stop"}</Button>}>
+    <EntityPage title="Risk Settings" icon={ShieldCheck} loading={riskQuery.isLoading} error={riskQuery.isError} action={<Button variant={risk?.emergency_stop ? "success" : "danger"} loading={updateMutation.isPending} disabled={!risk} onClick={() => updateMutation.mutate()}>{risk?.emergency_stop ? "Disable circuit breaker" : "Enable circuit breaker"}</Button>}>
       {risk ? (
         <div className="grid gap-3 md:grid-cols-3">
           <RiskCard label="Risk per trade" value={`${(risk.max_risk_per_trade * 100).toFixed(1)}%`} />
           <RiskCard label="Daily loss" value={`${(risk.max_daily_loss * 100).toFixed(1)}%`} />
+          <RiskCard label="Weekly loss" value={`${(risk.max_weekly_loss * 100).toFixed(1)}%`} />
+          <RiskCard label="Max drawdown" value={`${(risk.max_drawdown * 100).toFixed(1)}%`} />
           <RiskCard label="Open trades" value={String(risk.max_open_trades)} />
           <RiskCard label="Symbol exposure" value={`${(risk.max_symbol_exposure * 100).toFixed(1)}%`} />
+          <RiskCard label="Max leverage" value={`${risk.max_leverage.toFixed(2)}x`} />
           <RiskCard label="Loss streak stop" value={String(risk.max_consecutive_losses)} />
+          <RiskCard label="Circuit breaker" value={risk.emergency_stop ? "enabled" : "disabled"} />
           <RiskCard label="Live trading" value={risk.live_trading_enabled ? "enabled" : "disabled"} />
         </div>
       ) : <EmptyState title="No risk settings" message="Create default settings from the backend startup seed." />}

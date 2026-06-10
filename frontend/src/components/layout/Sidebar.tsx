@@ -82,8 +82,7 @@ const fallbackNavItems: NavItem[] = [
     permission: "users:manage",
     children: [
       { label: "Users", icon: Users, href: "#/users", permission: "users:manage" },
-      { label: "API Keys", icon: KeyRound, href: "#/api-keys", permission: "api-credentials:manage" },
-      { label: "Risk Settings", icon: ShieldCheck, href: "#/risk-settings", permission: "risk-settings:manage" }
+      { label: "API Keys", icon: KeyRound, href: "#/api-keys", permission: "api-credentials:manage" }
     ]
   },
   {
@@ -109,6 +108,16 @@ const fallbackNavItems: NavItem[] = [
       { label: "Orders", icon: Activity, href: "#/trading/orders", permission: "orders:view" },
       { label: "Positions", icon: Wallet, href: "#/trading/positions", permission: "positions:view" },
       { label: "Trade History", icon: Clock3, href: "#/trade-history", permission: "orders:view" }
+    ]
+  },
+  {
+    label: "Risk",
+    icon: ShieldCheck,
+    href: "#/risk-analytics",
+    permission: "risk-settings:view",
+    children: [
+      { label: "Risk Settings", icon: SlidersHorizontal, href: "#/risk-settings", permission: "risk-settings:view" },
+      { label: "Risk Analytics", icon: Activity, href: "#/risk-analytics", permission: "risk-settings:view" }
     ]
   },
   {

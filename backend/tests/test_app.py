@@ -340,6 +340,60 @@ def test_broker_registry_hides_secrets_and_placeholder_execution_is_guarded() ->
     assert placeholder_order_response.status_code == 501
 
 
+def test_advanced_risk_engine_endpoints() -> None:
+    with TestClient(app) as client:
+        headers = auth_headers(client)
+        summary_response = client.get("/api/risk/summary", headers=headers)
+        limits_response = client.get("/api/risk/limits", headers=headers)
+        update_limits_response = client.put(
+            "/api/risk/limits",
+            headers=headers,
+            json={"max_weekly_loss": 0.07, "max_drawdown": 0.12, "max_leverage": 2.0},
+        )
+        validation_response = client.post(
+            "/api/risk/validate-trade",
+            headers=headers,
+            json={
+                "symbol": "BTCUSDT",
+                "side": "buy",
+                "price": 65000,
+                "quantity": 0.001,
+                "stop_loss": 64000,
+                "take_profit": 67000,
+                "leverage": 1,
+                "execution_mode": "paper",
+            },
+        )
+        sizing_response = client.post(
+            "/api/risk/position-size",
+            headers=headers,
+            json={
+                "symbol": "BTCUSDT",
+                "method": "fixed_percentage_risk",
+                "entry_price": 65000,
+                "stop_loss": 64000,
+                "risk_percent": 0.01,
+            },
+        )
+        enable_response = client.post("/api/risk/circuit-breaker/enable", headers=headers)
+        disable_response = client.post("/api/risk/circuit-breaker/disable", headers=headers)
+
+    assert summary_response.status_code == 200
+    assert "risk_score" in summary_response.json()
+    assert limits_response.status_code == 200
+    assert "max_leverage" in limits_response.json()
+    assert update_limits_response.status_code == 200
+    assert update_limits_response.json()["max_leverage"] == 2.0
+    assert validation_response.status_code == 200
+    assert "risk_score" in validation_response.json()
+    assert sizing_response.status_code == 200
+    assert sizing_response.json()["quantity"] > 0
+    assert enable_response.status_code == 200
+    assert enable_response.json()["circuit_breaker_enabled"] is True
+    assert disable_response.status_code == 200
+    assert disable_response.json()["circuit_breaker_enabled"] is False
+
+
 def test_ai_training_pipeline_versions_deploys_compares_and_predicts() -> None:
     with TestClient(app) as client:
         headers = auth_headers(client)

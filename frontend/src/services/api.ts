@@ -116,8 +116,11 @@ export type RiskSetting = {
   name: string;
   max_risk_per_trade: number;
   max_daily_loss: number;
+  max_weekly_loss: number;
+  max_drawdown: number;
   max_open_trades: number;
   max_symbol_exposure: number;
+  max_leverage: number;
   max_consecutive_losses: number;
   emergency_stop: boolean;
   live_trading_enabled: boolean;
@@ -133,7 +136,7 @@ export type StrategyCreateRequest = Pick<StrategyResource, "name" | "description
 export type RiskSettingUpdateRequest = Partial<
   Pick<
     RiskSetting,
-    "name" | "max_risk_per_trade" | "max_daily_loss" | "max_open_trades" | "max_symbol_exposure" | "status"
+    "name" | "max_risk_per_trade" | "max_daily_loss" | "max_weekly_loss" | "max_drawdown" | "max_open_trades" | "max_symbol_exposure" | "max_leverage" | "status"
   >
   & Pick<RiskSetting, "max_consecutive_losses" | "emergency_stop" | "live_trading_enabled">
 >;

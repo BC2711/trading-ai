@@ -81,6 +81,15 @@ from app.schemas.brokers import (
     BrokerPositionsResponse,
     BrokerStatusRead,
 )
+from app.schemas.risk import (
+    PositionSizeRequest,
+    PositionSizeResponse,
+    RiskLimitsRead,
+    RiskLimitsUpdate,
+    RiskSummaryResponse,
+    RiskTradeValidationRequest,
+    RiskTradeValidationResponse,
+)
 from app.schemas.paper_trading import (
     PaperTradingAccountRead,
     PaperTradingOrderCreate,
@@ -154,6 +163,14 @@ from app.services.portfolio import (
     get_portfolio_summary,
 )
 from app.services.paper_trading import PaperTradingService
+from app.services.risk import (
+    get_limits as get_risk_limits,
+    position_size as calculate_position_size,
+    risk_summary,
+    set_circuit_breaker,
+    update_limits as update_risk_limits,
+    validate_trade_request,
+)
 from app.services.execution.brokers import BrokerAdapterError, BrokerNotImplementedError, BrokerService
 from app.services.signals import generate_signals, list_signals
 from app.workers.tasks import refresh_market_data
@@ -195,7 +212,6 @@ NAVIGATION_ITEMS = [
         "children": [
             {"label": "Users", "href": "#/users", "icon": "users", "permission": "users:manage"},
             {"label": "API Keys", "href": "#/api-keys", "icon": "key", "permission": "api-credentials:manage"},
-            {"label": "Risk Settings", "href": "#/risk-settings", "icon": "shield-check", "permission": "risk-settings:manage"},
         ],
     },
     {
@@ -250,6 +266,26 @@ NAVIGATION_ITEMS = [
                 "href": "#/trade-history",
                 "icon": "clock",
                 "permission": "orders:view",
+            },
+        ],
+    },
+    {
+        "label": "Risk",
+        "href": "#/risk-analytics",
+        "icon": "shield-check",
+        "permission": "risk-settings:view",
+        "children": [
+            {
+                "label": "Risk Settings",
+                "href": "#/risk-settings",
+                "icon": "sliders-horizontal",
+                "permission": "risk-settings:view",
+            },
+            {
+                "label": "Risk Analytics",
+                "href": "#/risk-analytics",
+                "icon": "activity",
+                "permission": "risk-settings:view",
             },
         ],
     },
@@ -716,6 +752,65 @@ def patch_risk_settings(
         raise HTTPException(status_code=404, detail="Risk settings not found")
 
     return RiskSettingRead.model_validate(settings)
+
+
+@router.get("/risk/summary", response_model=RiskSummaryResponse, tags=["risk"])
+def get_risk_summary(
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("risk-settings:view")),
+) -> RiskSummaryResponse:
+    return risk_summary(db)
+
+
+@router.post("/risk/validate-trade", response_model=RiskTradeValidationResponse, tags=["risk"])
+def post_risk_validate_trade(
+    payload: RiskTradeValidationRequest,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("risk-settings:view")),
+) -> RiskTradeValidationResponse:
+    return validate_trade_request(db, payload)
+
+
+@router.post("/risk/position-size", response_model=PositionSizeResponse, tags=["risk"])
+def post_risk_position_size(
+    payload: PositionSizeRequest,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("risk-settings:view")),
+) -> PositionSizeResponse:
+    return calculate_position_size(db, payload)
+
+
+@router.get("/risk/limits", response_model=RiskLimitsRead, tags=["risk"])
+def get_risk_limits_endpoint(
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("risk-settings:view")),
+) -> RiskLimitsRead:
+    return get_risk_limits(db)
+
+
+@router.put("/risk/limits", response_model=RiskLimitsRead, tags=["risk"])
+def put_risk_limits(
+    payload: RiskLimitsUpdate,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("risk-settings:update")),
+) -> RiskLimitsRead:
+    return update_risk_limits(db, payload)
+
+
+@router.post("/risk/circuit-breaker/enable", response_model=RiskLimitsRead, tags=["risk"])
+def post_enable_circuit_breaker(
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("risk-settings:update")),
+) -> RiskLimitsRead:
+    return set_circuit_breaker(db, True)
+
+
+@router.post("/risk/circuit-breaker/disable", response_model=RiskLimitsRead, tags=["risk"])
+def post_disable_circuit_breaker(
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("risk-settings:update")),
+) -> RiskLimitsRead:
+    return set_circuit_breaker(db, False)
 
 
 @router.get("/backtests", response_model=list[BacktestRunRead], tags=["backtests"])

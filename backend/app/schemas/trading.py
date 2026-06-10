@@ -291,8 +291,11 @@ class RiskSettingRead(BaseModel):
     name: str
     max_risk_per_trade: float
     max_daily_loss: float
+    max_weekly_loss: float = 0.08
+    max_drawdown: float = 0.15
     max_open_trades: int
     max_symbol_exposure: float
+    max_leverage: float = 1.0
     max_consecutive_losses: int
     emergency_stop: bool
     live_trading_enabled: bool
@@ -306,8 +309,11 @@ class RiskSettingUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=120)
     max_risk_per_trade: float | None = Field(default=None, gt=0, le=1)
     max_daily_loss: float | None = Field(default=None, gt=0, le=1)
+    max_weekly_loss: float | None = Field(default=None, gt=0, le=1)
+    max_drawdown: float | None = Field(default=None, gt=0, le=1)
     max_open_trades: int | None = Field(default=None, ge=1, le=50)
     max_symbol_exposure: float | None = Field(default=None, gt=0, le=1)
+    max_leverage: float | None = Field(default=None, gt=0, le=100)
     max_consecutive_losses: int | None = Field(default=None, ge=1, le=20)
     emergency_stop: bool | None = None
     live_trading_enabled: bool | None = None
