@@ -101,6 +101,14 @@ from app.schemas.paper_trading import (
     PaperTradingResetRequest,
     PaperTradingResetResponse,
 )
+from app.schemas.strategy_builder import (
+    StrategyBuilderCreate,
+    StrategyBuilderRead,
+    StrategyEvaluationRequest,
+    StrategyEvaluationResponse,
+    StrategyRuleRead,
+    StrategyRulesUpdate,
+)
 from app.core.config import settings
 from app.core.security import create_access_token, create_refresh_token, decode_jwt, decode_refresh_token
 from app.db.auth import get_current_user as require_current_user, require_permission, require_role
@@ -174,6 +182,13 @@ from app.services.risk import (
     validate_trade_request,
 )
 from app.services.risk.monte_carlo import get_monte_carlo_run, run_monte_carlo
+from app.services.strategy_builder import (
+    create_strategy_builder,
+    evaluate_strategy,
+    get_strategy_rules,
+    list_strategy_builders,
+    update_strategy_rules,
+)
 from app.services.execution.brokers import BrokerAdapterError, BrokerNotImplementedError, BrokerService
 from app.services.signals import generate_signals, list_signals
 from app.workers.tasks import refresh_market_data
@@ -224,6 +239,7 @@ NAVIGATION_ITEMS = [
         "permission": "strategies:view",
         "children": [
             {"label": "Strategies", "href": "#/strategies", "icon": "sliders-horizontal", "permission": "strategies:view"},
+            {"label": "Strategy Builder", "href": "#/strategies/builder", "icon": "activity", "permission": "strategies:update"},
             {"label": "Backtests", "href": "#/backtests", "icon": "activity", "permission": "backtests:view"},
             {"label": "AI Models", "href": "#/ai-models", "icon": "brain", "permission": "ai-models:view"},
         ],
@@ -692,6 +708,26 @@ def post_strategy(
     return StrategyRead.model_validate(create_strategy(db, payload))
 
 
+@router.post("/strategies/builder", response_model=StrategyBuilderRead, tags=["strategies"])
+def post_strategy_builder(
+    payload: StrategyBuilderCreate,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("strategies:update")),
+) -> StrategyBuilderRead:
+    try:
+        return create_strategy_builder(db, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/strategies/builder", response_model=list[StrategyBuilderRead], tags=["strategies"])
+def get_strategy_builders(
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("strategies:view")),
+) -> list[StrategyBuilderRead]:
+    return list_strategy_builders(db)
+
+
 @router.patch("/strategies/{strategy_id}", response_model=StrategyRead, tags=["strategies"])
 def patch_strategy(
     strategy_id: int,
@@ -704,6 +740,47 @@ def patch_strategy(
         raise HTTPException(status_code=404, detail="Strategy not found")
 
     return StrategyRead.model_validate(strategy)
+
+
+@router.get("/strategies/{strategy_id}/rules", response_model=list[StrategyRuleRead], tags=["strategies"])
+def get_strategy_rules_endpoint(
+    strategy_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("strategies:view")),
+) -> list[StrategyRuleRead]:
+    rules = get_strategy_rules(db, strategy_id)
+    if rules is None:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+    return rules
+
+
+@router.put("/strategies/{strategy_id}/rules", response_model=list[StrategyRuleRead], tags=["strategies"])
+def put_strategy_rules_endpoint(
+    strategy_id: int,
+    payload: StrategyRulesUpdate,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("strategies:update")),
+) -> list[StrategyRuleRead]:
+    rules = update_strategy_rules(db, strategy_id, payload)
+    if rules is None:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+    return rules
+
+
+@router.post("/strategies/{strategy_id}/evaluate", response_model=StrategyEvaluationResponse, tags=["strategies"])
+def post_strategy_evaluate(
+    strategy_id: int,
+    payload: StrategyEvaluationRequest | None = None,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("strategies:view")),
+) -> StrategyEvaluationResponse:
+    try:
+        evaluation = evaluate_strategy(db, strategy_id, payload or StrategyEvaluationRequest())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if evaluation is None:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+    return evaluation
 
 
 @router.post("/strategies/{strategy_id}/enable", response_model=StrategyRead, tags=["strategies"])

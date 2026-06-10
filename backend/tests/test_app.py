@@ -394,6 +394,73 @@ def test_advanced_risk_engine_endpoints() -> None:
     assert disable_response.json()["circuit_breaker_enabled"] is False
 
 
+def test_strategy_builder_creates_updates_and_evaluates_rules() -> None:
+    with TestClient(app) as client:
+        headers = auth_headers(client)
+        create_response = client.post(
+            "/api/strategies/builder",
+            headers=headers,
+            json={
+                "name": "Builder Test Strategy",
+                "description": "Rule builder test",
+                "timeframe": "15m",
+                "enabled": False,
+                "rules": [
+                    {
+                        "name": "RSI entry",
+                        "priority": 1,
+                        "logic_operator": "AND",
+                        "enabled": True,
+                        "conditions": [
+                            {"sequence": 1, "indicator": "RSI", "period": 14, "operator": "<", "value": 101}
+                        ],
+                        "action": {"action": "BUY"},
+                    }
+                ],
+            },
+        )
+        assert create_response.status_code == 200, create_response.text
+        strategy_id = create_response.json()["id"]
+
+        list_response = client.get("/api/strategies/builder", headers=headers)
+        rules_response = client.get(f"/api/strategies/{strategy_id}/rules", headers=headers)
+        update_response = client.put(
+            f"/api/strategies/{strategy_id}/rules",
+            headers=headers,
+            json={
+                "rules": [
+                    {
+                        "name": "Price change entry",
+                        "priority": 1,
+                        "logic_operator": "AND",
+                        "enabled": True,
+                        "conditions": [
+                            {"sequence": 1, "indicator": "PRICE_CHANGE", "period": 1, "operator": ">", "value": -1}
+                        ],
+                        "action": {"action": "SELL"},
+                    }
+                ]
+            },
+        )
+        evaluate_response = client.post(
+            f"/api/strategies/{strategy_id}/evaluate",
+            headers=headers,
+            json={"symbol": "BTCUSDT", "timeframe": "15m", "lookback": 120},
+        )
+
+    assert list_response.status_code == 200
+    assert any(item["id"] == strategy_id for item in list_response.json())
+    assert rules_response.status_code == 200
+    assert rules_response.json()[0]["conditions"][0]["indicator"] == "RSI"
+    assert update_response.status_code == 200
+    assert update_response.json()[0]["actions"][0]["action"] == "SELL"
+    assert evaluate_response.status_code == 200, evaluate_response.text
+    evaluation = evaluate_response.json()
+    assert evaluation["action"] == "SELL"
+    assert evaluation["triggered_rule_id"] is not None
+    assert "PRICE_CHANGE" in evaluation["indicators"]
+
+
 def test_monte_carlo_risk_simulation_persists_and_returns_distribution() -> None:
     with TestClient(app) as client:
         headers = auth_headers(client)

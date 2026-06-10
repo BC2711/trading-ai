@@ -130,6 +130,66 @@ class Strategy(Base):
 
     signals: Mapped[list["Signal"]] = relationship(back_populates="strategy_ref")
     backtest_runs: Mapped[list["BacktestRun"]] = relationship(back_populates="strategy_ref")
+    builder_rules: Mapped[list["StrategyRule"]] = relationship(
+        back_populates="strategy_ref",
+        cascade="all, delete-orphan",
+        order_by="StrategyRule.priority",
+    )
+
+
+class StrategyRule(Base):
+    __tablename__ = "strategy_rules"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    strategy_id: Mapped[int] = mapped_column(ForeignKey("strategies.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(160), default="Rule")
+    logic_operator: Mapped[str] = mapped_column(String(8), default="AND")
+    priority: Mapped[int] = mapped_column(Integer, default=1)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    strategy_ref: Mapped[Strategy] = relationship(back_populates="builder_rules")
+    conditions: Mapped[list["StrategyCondition"]] = relationship(
+        back_populates="rule_ref",
+        cascade="all, delete-orphan",
+        order_by="StrategyCondition.sequence",
+    )
+    actions: Mapped[list["StrategyAction"]] = relationship(
+        back_populates="rule_ref",
+        cascade="all, delete-orphan",
+        order_by="StrategyAction.id",
+    )
+
+
+class StrategyCondition(Base):
+    __tablename__ = "strategy_conditions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    rule_id: Mapped[int] = mapped_column(ForeignKey("strategy_rules.id", ondelete="CASCADE"), index=True)
+    sequence: Mapped[int] = mapped_column(Integer, default=1)
+    indicator: Mapped[str] = mapped_column(String(40), index=True)
+    operator: Mapped[str] = mapped_column(String(16), default="<")
+    value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    period: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    compare_indicator: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    compare_period: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    parameters: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+
+    rule_ref: Mapped[StrategyRule] = relationship(back_populates="conditions")
+
+
+class StrategyAction(Base):
+    __tablename__ = "strategy_actions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    rule_id: Mapped[int] = mapped_column(ForeignKey("strategy_rules.id", ondelete="CASCADE"), index=True)
+    action: Mapped[str] = mapped_column(String(24), index=True)
+    parameters: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+
+    rule_ref: Mapped[StrategyRule] = relationship(back_populates="actions")
 
 
 class RiskSetting(Base):

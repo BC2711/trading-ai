@@ -21,6 +21,9 @@ import {
 const DashboardPage = lazy(() =>
   import("./pages/DashboardPage").then((module) => ({ default: module.DashboardPage }))
 );
+const StrategyBuilderPage = lazy(() =>
+  import("./pages/StrategyBuilderPage").then((module) => ({ default: module.StrategyBuilderPage }))
+);
 const TradingPage = lazy(() =>
   import("./pages/TradingPage").then((module) => ({ default: module.TradingPage }))
 );
@@ -80,6 +83,7 @@ function PageFallback() {
 function renderRoute(route: string) {
   if (route.startsWith("users")) return <UsersPage />;
   if (route.startsWith("api-keys")) return <ApiKeysPage />;
+  if (route.startsWith("strategies/builder")) return <StrategyBuilderPage />;
   if (route.startsWith("strategies")) return <StrategiesPage />;
   if (route.startsWith("backtests")) return <BacktestsPage />;
   if (route.startsWith("ai-models")) return <AiModelsPage />;

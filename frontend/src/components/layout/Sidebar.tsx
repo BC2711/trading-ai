@@ -92,6 +92,7 @@ const fallbackNavItems: NavItem[] = [
     permission: "strategies:view",
     children: [
       { label: "Strategies", icon: SlidersHorizontal, href: "#/strategies", permission: "strategies:view" },
+      { label: "Strategy Builder", icon: Activity, href: "#/strategies/builder", permission: "strategies:update" },
       { label: "Backtests", icon: Activity, href: "#/backtests", permission: "backtests:view" },
       { label: "AI Models", icon: BrainCircuit, href: "#/ai-models", permission: "ai-models:view" }
     ]
