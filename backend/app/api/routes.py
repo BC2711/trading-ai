@@ -19,6 +19,8 @@ from app.schemas.trading import (
     BacktestReport,
     BacktestRunRead,
     BacktestRunRequest,
+    WalkForwardRequest,
+    WalkForwardRunRead,
     CurrentUserRead,
     MarketCandleRead,
     MarketDataImportRequest,
@@ -155,6 +157,7 @@ from app.services.admin import (
 )
 from app.services.audit import audit_event_to_schema, list_audit_events
 from app.services.backtesting.engine import get_backtest_run, list_backtest_runs, run_backtest
+from app.services.backtesting.walk_forward import get_walk_forward_run, run_walk_forward
 from app.services.execution.paper import (
     cancel_paper_order,
     close_paper_position,
@@ -241,6 +244,7 @@ NAVIGATION_ITEMS = [
             {"label": "Strategies", "href": "#/strategies", "icon": "sliders-horizontal", "permission": "strategies:view"},
             {"label": "Strategy Builder", "href": "#/strategies/builder", "icon": "activity", "permission": "strategies:update"},
             {"label": "Backtests", "href": "#/backtests", "icon": "activity", "permission": "backtests:view"},
+            {"label": "Walk-Forward Testing", "href": "#/backtests/walk-forward", "icon": "activity", "permission": "backtests:run"},
             {"label": "AI Models", "href": "#/ai-models", "icon": "brain", "permission": "ai-models:view"},
         ],
     },
@@ -941,6 +945,30 @@ def post_backtest_run(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return backtest_to_schema(run)
+
+
+@router.post("/backtests/walk-forward", response_model=WalkForwardRunRead, tags=["backtests"])
+def post_walk_forward_backtest(
+    payload: WalkForwardRequest,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("backtests:run")),
+) -> WalkForwardRunRead:
+    try:
+        return run_walk_forward(db, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/backtests/walk-forward/{run_id}", response_model=WalkForwardRunRead, tags=["backtests"])
+def get_walk_forward_backtest(
+    run_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("backtests:view")),
+) -> WalkForwardRunRead:
+    run = get_walk_forward_run(db, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Walk-forward run not found")
+    return run
 
 
 @router.get("/backtests/{run_id}/report", response_model=BacktestReport, tags=["backtests"])

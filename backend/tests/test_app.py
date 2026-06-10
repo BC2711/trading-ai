@@ -461,6 +461,37 @@ def test_strategy_builder_creates_updates_and_evaluates_rules() -> None:
     assert "PRICE_CHANGE" in evaluation["indicators"]
 
 
+def test_walk_forward_backtest_persists_windows_and_aggregate_result() -> None:
+    with TestClient(app) as client:
+        headers = auth_headers(client)
+        run_response = client.post(
+            "/api/backtests/walk-forward",
+            headers=headers,
+            json={
+                "symbol": "BTCUSDT",
+                "timeframe": "15m",
+                "initial_balance": 10000,
+                "training_period": 60,
+                "validation_period": 30,
+                "test_period": 30,
+                "rolling_windows": 3,
+            },
+        )
+        assert run_response.status_code == 200, run_response.text
+        run = run_response.json()
+        lookup_response = client.get(f"/api/backtests/walk-forward/{run['id']}", headers=headers)
+
+    assert run["id"] > 0
+    assert run["status"] == "completed"
+    assert len(run["window_metrics"]) == 3
+    assert len(run["optimization_results"]) == 3
+    assert len(run["out_of_sample_results"]) == 3
+    assert run["aggregated_result"]["windows"] == 3
+    assert "robustness_score" in run["aggregated_result"]
+    assert lookup_response.status_code == 200
+    assert lookup_response.json()["id"] == run["id"]
+
+
 def test_monte_carlo_risk_simulation_persists_and_returns_distribution() -> None:
     with TestClient(app) as client:
         headers = auth_headers(client)

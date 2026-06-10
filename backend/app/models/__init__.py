@@ -23,6 +23,7 @@ from app.models.trading import (
     SystemLog,
     Symbol,
     User,
+    WalkForwardRun,
 )
 
 __all__ = [
@@ -50,4 +51,5 @@ __all__ = [
     "SystemLog",
     "Symbol",
     "User",
+    "WalkForwardRun",
 ]

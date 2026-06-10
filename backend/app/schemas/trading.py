@@ -601,6 +601,75 @@ class BacktestReport(BaseModel):
     metrics: dict
 
 
+class WalkForwardRequest(BaseModel):
+    strategy_id: int | None = None
+    symbol: str = "BTCUSDT"
+    timeframe: str = "15m"
+    initial_balance: float = Field(default=10000.0, gt=0)
+    training_period: int = Field(default=90, ge=30, le=2000)
+    validation_period: int = Field(default=30, ge=10, le=1000)
+    test_period: int = Field(default=30, ge=10, le=1000)
+    rolling_windows: int = Field(default=3, ge=1, le=50)
+
+
+class WalkForwardMetrics(BaseModel):
+    total_return: float
+    ending_balance: float
+    win_rate: float
+    max_drawdown: float
+    trades_count: int
+    profit_factor: float
+    sharpe_ratio: float
+
+
+class WalkForwardWindowResult(BaseModel):
+    window: int
+    train_start: str
+    train_end: str
+    validation_start: str
+    validation_end: str
+    test_start: str
+    test_end: str
+    selected_parameters: dict
+    optimization_score: float
+    training_metrics: WalkForwardMetrics
+    validation_metrics: WalkForwardMetrics
+    test_metrics: WalkForwardMetrics
+
+
+class WalkForwardAggregatedResult(BaseModel):
+    windows: int
+    cumulative_return: float
+    average_test_return: float
+    average_validation_return: float
+    average_win_rate: float
+    max_drawdown: float
+    total_trades: int
+    profit_factor: float
+    sharpe_ratio: float
+    robustness_score: float
+
+
+class WalkForwardRunRead(BaseModel):
+    id: int
+    symbol: str
+    strategy: str | None = None
+    strategy_id: int | None = None
+    timeframe: str
+    training_period: int
+    validation_period: int
+    test_period: int
+    rolling_windows: int
+    initial_balance: float
+    optimization_results: list[dict] = Field(default_factory=list)
+    out_of_sample_results: list[dict] = Field(default_factory=list)
+    window_metrics: list[WalkForwardWindowResult] = Field(default_factory=list)
+    aggregated_result: WalkForwardAggregatedResult
+    status: str
+    warning: str | None = None
+    created_at: datetime
+
+
 class NotificationCreate(BaseModel):
     title: str = Field(..., min_length=2, max_length=180)
     message: str = Field(..., min_length=2, max_length=800)

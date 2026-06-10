@@ -259,6 +259,30 @@ class BacktestRun(Base):
     strategy_ref: Mapped[Strategy | None] = relationship(back_populates="backtest_runs")
 
 
+class WalkForwardRun(Base):
+    __tablename__ = "walk_forward_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    symbol_id: Mapped[int] = mapped_column(ForeignKey("symbols.id", ondelete="CASCADE"), index=True)
+    strategy_id: Mapped[int | None] = mapped_column(ForeignKey("strategies.id", ondelete="SET NULL"), nullable=True)
+    timeframe: Mapped[str] = mapped_column(String(8), default="15m")
+    training_period: Mapped[int] = mapped_column(Integer)
+    validation_period: Mapped[int] = mapped_column(Integer)
+    test_period: Mapped[int] = mapped_column(Integer)
+    rolling_windows: Mapped[int] = mapped_column(Integer)
+    initial_balance: Mapped[float] = mapped_column(Float, default=10000.0)
+    optimization_results: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    out_of_sample_results: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    window_metrics: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    aggregated_result: Mapped[dict] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(16), default="completed", index=True)
+    warning: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+
+    symbol_ref: Mapped[Symbol] = relationship()
+    strategy_ref: Mapped[Strategy | None] = relationship()
+
+
 class AIAnalysisRecord(Base):
     __tablename__ = "ai_analyses"
 

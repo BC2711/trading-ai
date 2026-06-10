@@ -24,6 +24,9 @@ const DashboardPage = lazy(() =>
 const StrategyBuilderPage = lazy(() =>
   import("./pages/StrategyBuilderPage").then((module) => ({ default: module.StrategyBuilderPage }))
 );
+const WalkForwardTestingPage = lazy(() =>
+  import("./pages/WalkForwardTestingPage").then((module) => ({ default: module.WalkForwardTestingPage }))
+);
 const TradingPage = lazy(() =>
   import("./pages/TradingPage").then((module) => ({ default: module.TradingPage }))
 );
@@ -85,6 +88,7 @@ function renderRoute(route: string) {
   if (route.startsWith("api-keys")) return <ApiKeysPage />;
   if (route.startsWith("strategies/builder")) return <StrategyBuilderPage />;
   if (route.startsWith("strategies")) return <StrategiesPage />;
+  if (route.startsWith("backtests/walk-forward")) return <WalkForwardTestingPage />;
   if (route.startsWith("backtests")) return <BacktestsPage />;
   if (route.startsWith("ai-models")) return <AiModelsPage />;
   if (route.startsWith("risk-settings")) return <RiskSettingsPage />;
