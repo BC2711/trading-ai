@@ -259,6 +259,32 @@ def test_market_data_stream_ingests_and_lists_ticks() -> None:
     assert ticks_response.json()[0]["spread"] == 0.0002
 
 
+def test_portfolio_management_endpoints_return_aggregate_shapes() -> None:
+    with TestClient(app) as client:
+        headers = auth_headers(client)
+        summary_response = client.get("/api/portfolio/summary", headers=headers)
+        performance_response = client.get("/api/portfolio/performance", headers=headers)
+        exposure_response = client.get("/api/portfolio/exposure", headers=headers)
+        allocation_response = client.get("/api/portfolio/allocation", headers=headers)
+        pnl_response = client.get("/api/portfolio/pnl", headers=headers)
+
+    assert summary_response.status_code == 200
+    assert performance_response.status_code == 200
+    assert exposure_response.status_code == 200
+    assert allocation_response.status_code == 200
+    assert pnl_response.status_code == 200
+
+    summary = summary_response.json()
+    assert {"total_equity", "available_balance", "margin_used", "daily_pnl", "monthly_pnl"}.issubset(summary)
+    assert "exposure_by_symbol" in summary
+    assert "allocation_by_asset" in summary
+    assert "open_position_allocation" in summary
+    assert "points" in performance_response.json()
+    assert "items" in exposure_response.json()
+    assert "by_asset" in allocation_response.json()
+    assert "total_pnl" in pnl_response.json()
+
+
 def test_ai_training_pipeline_versions_deploys_compares_and_predicts() -> None:
     with TestClient(app) as client:
         headers = auth_headers(client)

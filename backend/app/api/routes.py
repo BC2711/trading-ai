@@ -41,9 +41,7 @@ from app.schemas.trading import (
     PaperOrderRead,
     PaperOrderRequest,
     PaperPositionRead,
-    EquityCurveResponse,
     NavigationItemRead,
-    PortfolioSummaryResponse,
     RefreshTokenRequest,
     RiskSettingRead,
     RiskSettingUpdate,
@@ -62,6 +60,14 @@ from app.schemas.trading import (
     UserLogin,
     UserRead,
     UserUpdate,
+)
+from app.schemas.portfolio import (
+    EquityCurveResponse,
+    PortfolioAllocationResponse,
+    PortfolioExposureResponse,
+    PortfolioPerformanceResponse,
+    PortfolioPnlResponse,
+    PortfolioSummaryResponse,
 )
 from app.core.config import settings
 from app.core.security import create_access_token, create_refresh_token, decode_jwt, decode_refresh_token
@@ -118,7 +124,14 @@ from app.services.execution.paper import (
     order_to_schema,
     position_to_schema,
 )
-from app.services.execution.portfolio import get_equity_curve, get_portfolio_summary
+from app.services.portfolio import (
+    get_equity_curve,
+    get_portfolio_allocation,
+    get_portfolio_exposure,
+    get_portfolio_performance,
+    get_portfolio_pnl,
+    get_portfolio_summary,
+)
 from app.services.signals import generate_signals, list_signals
 from app.workers.tasks import refresh_market_data
 
@@ -179,6 +192,12 @@ NAVIGATION_ITEMS = [
         "icon": "trending-up",
         "permission": "orders:view",
         "children": [
+            {
+                "label": "Portfolio",
+                "href": "#/trading/portfolio",
+                "icon": "wallet",
+                "permission": "portfolio:view",
+            },
             {
                 "label": "Orders",
                 "href": "#/trading/orders",
@@ -949,6 +968,38 @@ def get_portfolio_summary_endpoint(
     _user: User = Depends(require_permission("portfolio:view")),
 ) -> PortfolioSummaryResponse:
     return get_portfolio_summary(db)
+
+
+@router.get("/portfolio/performance", response_model=PortfolioPerformanceResponse, tags=["portfolio"])
+def get_portfolio_performance_endpoint(
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("portfolio:view")),
+) -> PortfolioPerformanceResponse:
+    return get_portfolio_performance(db)
+
+
+@router.get("/portfolio/exposure", response_model=PortfolioExposureResponse, tags=["portfolio"])
+def get_portfolio_exposure_endpoint(
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("portfolio:view")),
+) -> PortfolioExposureResponse:
+    return get_portfolio_exposure(db)
+
+
+@router.get("/portfolio/allocation", response_model=PortfolioAllocationResponse, tags=["portfolio"])
+def get_portfolio_allocation_endpoint(
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("portfolio:view")),
+) -> PortfolioAllocationResponse:
+    return get_portfolio_allocation(db)
+
+
+@router.get("/portfolio/pnl", response_model=PortfolioPnlResponse, tags=["portfolio"])
+def get_portfolio_pnl_endpoint(
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("portfolio:view")),
+) -> PortfolioPnlResponse:
+    return get_portfolio_pnl(db)
 
 
 @router.get("/portfolio/equity-curve", response_model=EquityCurveResponse, tags=["portfolio"])
