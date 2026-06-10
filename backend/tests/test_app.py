@@ -259,6 +259,31 @@ def test_market_data_stream_ingests_and_lists_ticks() -> None:
     assert ticks_response.json()[0]["spread"] == 0.0002
 
 
+def test_ai_feature_store_calculates_lists_and_exposes_feature_sets() -> None:
+    with TestClient(app) as client:
+        headers = auth_headers(client)
+        calculate_response = client.post(
+            "/api/features/calculate",
+            headers=headers,
+            json={"symbol": "BTCUSDT", "timeframe": "15m", "lookback": 240, "persist_last": 5},
+        )
+        features_response = client.get("/api/features", headers=headers, params={"limit": 5})
+        symbol_response = client.get("/api/features/BTCUSDT", headers=headers, params={"limit": 5})
+        sets_response = client.get("/api/features/sets", headers=headers)
+
+    assert calculate_response.status_code == 200, calculate_response.text
+    calculated = calculate_response.json()
+    assert calculated["rows_calculated"] == 5
+    latest_values = calculated["latest"]["values"]
+    assert {"rsi_14", "macd", "bb_width", "volume_change", "price_change", "trend_direction"}.issubset(latest_values)
+    assert features_response.status_code == 200
+    assert features_response.json()
+    assert symbol_response.status_code == 200
+    assert all(item["symbol"] == "BTCUSDT" for item in symbol_response.json())
+    assert sets_response.status_code == 200
+    assert "default-ai-trading" in {item["name"] for item in sets_response.json()}
+
+
 def test_portfolio_management_endpoints_return_aggregate_shapes() -> None:
     with TestClient(app) as client:
         headers = auth_headers(client)

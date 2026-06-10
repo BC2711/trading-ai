@@ -29,6 +29,8 @@ class Symbol(Base):
     signals: Mapped[list["Signal"]] = relationship(back_populates="symbol_ref")
     orders: Mapped[list["PaperOrder"]] = relationship(back_populates="symbol_ref")
     positions: Mapped[list["PaperPosition"]] = relationship(back_populates="symbol_ref")
+    market_features: Mapped[list["MarketFeature"]] = relationship(back_populates="symbol_ref")
+    feature_logs: Mapped[list["FeatureCalculationLog"]] = relationship(back_populates="symbol_ref")
 
 
 class MarketCandle(Base):
@@ -113,6 +115,57 @@ class MarketTrade(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     symbol_ref: Mapped[Symbol] = relationship(back_populates="trades")
+
+
+class FeatureSet(Base):
+    __tablename__ = "feature_sets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    description: Mapped[str] = mapped_column(String(500), default="")
+    features: Mapped[list[str]] = mapped_column(JSON, default=list)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    status: Mapped[str] = mapped_column(String(16), default="active", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+
+    market_features: Mapped[list["MarketFeature"]] = relationship(back_populates="feature_set_ref")
+    calculation_logs: Mapped[list["FeatureCalculationLog"]] = relationship(back_populates="feature_set_ref")
+
+
+class MarketFeature(Base):
+    __tablename__ = "market_features"
+    __table_args__ = (
+        UniqueConstraint("symbol_id", "feature_set_id", "timeframe", "candle_opened_at", name="uq_market_feature_symbol_set_time"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    symbol_id: Mapped[int] = mapped_column(ForeignKey("symbols.id", ondelete="CASCADE"), index=True)
+    feature_set_id: Mapped[int] = mapped_column(ForeignKey("feature_sets.id", ondelete="CASCADE"), index=True)
+    timeframe: Mapped[str] = mapped_column(String(8), index=True)
+    candle_opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    feature_values: Mapped[dict] = mapped_column("values", JSON, default=dict)
+    source: Mapped[str] = mapped_column(String(32), default="calculated")
+    calculated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+
+    symbol_ref: Mapped[Symbol] = relationship(back_populates="market_features")
+    feature_set_ref: Mapped[FeatureSet] = relationship(back_populates="market_features")
+
+
+class FeatureCalculationLog(Base):
+    __tablename__ = "feature_calculation_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    symbol_id: Mapped[int | None] = mapped_column(ForeignKey("symbols.id", ondelete="SET NULL"), nullable=True, index=True)
+    feature_set_id: Mapped[int | None] = mapped_column(ForeignKey("feature_sets.id", ondelete="SET NULL"), nullable=True, index=True)
+    timeframe: Mapped[str] = mapped_column(String(8), default="15m", index=True)
+    lookback: Mapped[int] = mapped_column(Integer, default=240)
+    rows_calculated: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(16), default="completed", index=True)
+    message: Mapped[str] = mapped_column(String(500), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+
+    symbol_ref: Mapped[Symbol | None] = relationship(back_populates="feature_logs")
+    feature_set_ref: Mapped[FeatureSet | None] = relationship(back_populates="calculation_logs")
 
 
 class Strategy(Base):

@@ -83,6 +83,7 @@ from app.schemas.brokers import (
     BrokerPositionsResponse,
     BrokerStatusRead,
 )
+from app.schemas.features import FeatureCalculationRequest, FeatureCalculationResponse, FeatureSetRead, MarketFeatureRead
 from app.schemas.risk import (
     PositionSizeRequest,
     PositionSizeResponse,
@@ -134,6 +135,7 @@ from app.services.market_data.repository import MarketDataRepository
 from app.services.market_data.service import MarketDataService
 from app.services.market_data.sync import sync_market_data
 from app.services.market_data.websocket import market_data_websocket
+from app.services.ai.features import FeatureService
 from app.services.ai.advisor import analyze_signal, analysis_to_response, get_ai_analysis, list_ai_analyses
 from app.services.ai.training import predict as predict_ai_model
 from app.services.ai.training import train_model
@@ -594,6 +596,46 @@ def get_market_order_books(
     _user: User = Depends(require_permission("market-data:view")),
 ) -> list[MarketOrderBookRead]:
     return [order_book_to_schema(snapshot) for snapshot in MarketDataRepository(db).list_order_books(symbol, limit)]
+
+
+@router.get("/features", response_model=list[MarketFeatureRead], tags=["features"])
+def get_features(
+    limit: int = Query(100, ge=1, le=500),
+    symbol: str | None = Query(None),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("market-data:view")),
+) -> list[MarketFeatureRead]:
+    return FeatureService(db).list_features(limit=limit, symbol=symbol)
+
+
+@router.post("/features/calculate", response_model=FeatureCalculationResponse, tags=["features"])
+def post_features_calculate(
+    payload: FeatureCalculationRequest,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("market-data:import")),
+) -> FeatureCalculationResponse:
+    try:
+        return FeatureService(db).calculate(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/features/sets", response_model=list[FeatureSetRead], tags=["features"])
+def get_feature_sets(
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("market-data:view")),
+) -> list[FeatureSetRead]:
+    return FeatureService(db).list_feature_sets()
+
+
+@router.get("/features/{symbol}", response_model=list[MarketFeatureRead], tags=["features"])
+def get_features_for_symbol(
+    symbol: str,
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("market-data:view")),
+) -> list[MarketFeatureRead]:
+    return FeatureService(db).list_features(limit=limit, symbol=symbol)
 
 
 @router.post("/market-data/stream", tags=["market-data"])

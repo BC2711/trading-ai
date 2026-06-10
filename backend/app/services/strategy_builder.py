@@ -1,5 +1,4 @@
 from datetime import datetime, timezone
-from statistics import mean, pstdev
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -18,7 +17,7 @@ from app.schemas.strategy_builder import (
 )
 from app.schemas.trading import StrategyCreate
 from app.services.audit import record_event
-from app.services.indicators.technical import atr, ema, rsi
+from app.services.ai.features import FeatureCalculator
 from app.services.repository import create_strategy, list_candles
 
 
@@ -88,7 +87,7 @@ def evaluate_strategy(
         return None
 
     candles = list_candles(db, payload.symbol, payload.timeframe, payload.lookback)
-    if len(candles) < 30:
+    if len(candles) < 80:
         raise ValueError("Not enough candle data to evaluate strategy")
 
     context = IndicatorContext(candles)
@@ -241,62 +240,11 @@ def indicator_label(indicator: str, period: int | None = None) -> str:
 
 class IndicatorContext:
     def __init__(self, candles: list[MarketCandle]) -> None:
-        self.closes = [candle.close for candle in candles]
-        self.highs = [candle.high for candle in candles]
-        self.lows = [candle.low for candle in candles]
-        self.volumes = [candle.volume for candle in candles]
+        self.candles = candles
+        self.calculator = FeatureCalculator()
 
     def value(self, indicator: str | None, period: int | None = None) -> float:
-        if indicator is None:
-            return 0.0
-        normalized = indicator.upper()
-        if normalized == "RSI":
-            return rsi(self.closes, period or 14)
-        if normalized == "EMA":
-            return ema(self.closes, period or 20)
-        if normalized == "SMA":
-            return self.sma(period or 20)
-        if normalized == "MACD":
-            return ema(self.closes, 12) - ema(self.closes, 26)
-        if normalized == "BOLLINGER_BANDS":
-            return self.bollinger_position(period or 20)
-        if normalized == "ATR":
-            return atr(self.highs, self.lows, self.closes, period or 14)
-        if normalized == "VOLUME":
-            return float(self.volumes[-1])
-        if normalized == "PRICE_CHANGE":
-            return self.price_change(period or 1)
-        raise ValueError(f"Unsupported indicator: {indicator}")
-
-    def sma(self, period: int) -> float:
-        window = self.closes[-period:]
-        return round(float(mean(window)), 4)
-
-    def bollinger_position(self, period: int) -> float:
-        window = self.closes[-period:]
-        average = mean(window)
-        deviation = pstdev(window) or 1.0
-        lower = average - (2 * deviation)
-        upper = average + (2 * deviation)
-        return round(float((self.closes[-1] - lower) / (upper - lower)), 6)
-
-    def price_change(self, period: int) -> float:
-        if len(self.closes) <= period:
-            return 0.0
-        previous = self.closes[-period - 1]
-        if previous == 0:
-            return 0.0
-        return round(float((self.closes[-1] - previous) / previous), 6)
+        return self.calculator.indicator_value(self.candles, indicator, period)
 
     def snapshot(self) -> dict[str, float]:
-        return {
-            "RSI14": self.value("RSI", 14),
-            "MACD": round(self.value("MACD"), 6),
-            "EMA20": self.value("EMA", 20),
-            "EMA50": self.value("EMA", 50),
-            "SMA20": self.value("SMA", 20),
-            "BOLLINGER_BANDS20": self.value("BOLLINGER_BANDS", 20),
-            "ATR14": self.value("ATR", 14),
-            "VOLUME": self.value("VOLUME"),
-            "PRICE_CHANGE": self.value("PRICE_CHANGE"),
-        }
+        return self.calculator.builder_snapshot(self.candles)
