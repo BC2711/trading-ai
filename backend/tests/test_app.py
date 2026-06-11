@@ -316,6 +316,29 @@ def test_market_scanner_endpoints_return_scan_results() -> None:
     assert market["children"][0]["label"] == "Market Scanner"
 
 
+def test_copilot_chat_returns_grounded_answer_and_history() -> None:
+    with TestClient(app) as client:
+        headers = auth_headers(client)
+        chat_response = client.post(
+            "/api/copilot/chat",
+            headers=headers,
+            json={"message": "What is my current portfolio risk?"},
+        )
+        history_response = client.get("/api/copilot/history", headers=headers)
+        navigation_response = client.get("/api/navigation", headers=headers)
+
+    assert chat_response.status_code == 200, chat_response.text
+    payload = chat_response.json()
+    assert payload["user_message"]["role"] == "user"
+    assert payload["assistant_message"]["role"] == "assistant"
+    assert payload["assistant_message"]["cards"]
+    assert payload["assistant_message"]["suggested_questions"]
+    assert history_response.status_code == 200
+    assert len(history_response.json()) >= 2
+    ai_nav = next(item for item in navigation_response.json() if item["label"] == "AI")
+    assert "AI Copilot" in {child["label"] for child in ai_nav["children"]}
+
+
 def test_portfolio_management_endpoints_return_aggregate_shapes() -> None:
     with TestClient(app) as client:
         headers = auth_headers(client)

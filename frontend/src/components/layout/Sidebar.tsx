@@ -9,6 +9,7 @@ import {
   KeyRound,
   LayoutDashboard,
   Menu,
+  MessageCircle,
   ScanSearch,
   Settings,
   Sparkles,
@@ -56,6 +57,7 @@ const iconMap: Record<string, LucideIcon> = {
   clock: Clock3,
   key: KeyRound,
   "layout-dashboard": LayoutDashboard,
+  "message-circle": MessageCircle,
   "scan-search": ScanSearch,
   "shield-check": ShieldCheck,
   "sliders-horizontal": SlidersHorizontal,
@@ -112,9 +114,10 @@ const fallbackNavItems: NavItem[] = [
   {
     label: "AI",
     icon: BrainCircuit,
-    href: "#/ai/model-registry",
+    href: "#/ai/copilot",
     permission: "ai-models:view",
     children: [
+      { label: "AI Copilot", icon: MessageCircle, href: "#/ai/copilot", permission: "ai-analyses:view" },
       { label: "Model Training", icon: Activity, href: "#/ai/model-training", permission: "ai-models:manage" },
       { label: "Model Registry", icon: BrainCircuit, href: "#/ai/model-registry", permission: "ai-models:view" }
     ]

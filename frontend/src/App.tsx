@@ -33,6 +33,9 @@ const ModelTrainingPage = lazy(() =>
 const ModelRegistryPage = lazy(() =>
   import("./pages/ModelRegistryPage").then((module) => ({ default: module.ModelRegistryPage }))
 );
+const CopilotPage = lazy(() =>
+  import("./pages/CopilotPage").then((module) => ({ default: module.CopilotPage }))
+);
 const TradingPage = lazy(() =>
   import("./pages/TradingPage").then((module) => ({ default: module.TradingPage }))
 );
@@ -101,6 +104,7 @@ function renderRoute(route: string) {
   if (route.startsWith("backtests")) return <BacktestsPage />;
   if (route.startsWith("ai/model-training")) return <ModelTrainingPage />;
   if (route.startsWith("ai/model-registry")) return <ModelRegistryPage />;
+  if (route.startsWith("ai/copilot") || route.startsWith("copilot")) return <CopilotPage />;
   if (route.startsWith("ai-models")) return <AiModelsPage />;
   if (route.startsWith("risk-settings")) return <RiskSettingsPage />;
   if (route.startsWith("risk-analytics")) return <RiskAnalyticsPage />;

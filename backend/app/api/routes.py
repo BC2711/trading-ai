@@ -85,6 +85,7 @@ from app.schemas.brokers import (
     BrokerPositionsResponse,
     BrokerStatusRead,
 )
+from app.schemas.copilot import CopilotChatRequest, CopilotChatResponse, CopilotMessage
 from app.schemas.features import FeatureCalculationRequest, FeatureCalculationResponse, FeatureSetRead, MarketFeatureRead
 from app.schemas.risk import (
     PositionSizeRequest,
@@ -164,6 +165,7 @@ from app.services.admin import (
 from app.services.audit import audit_event_to_schema, list_audit_events
 from app.services.backtesting.engine import get_backtest_run, list_backtest_runs, run_backtest
 from app.services.backtesting.walk_forward import get_walk_forward_run, run_walk_forward
+from app.services.copilot import chat as copilot_chat, history as copilot_history
 from app.services.execution.paper import (
     cancel_paper_order,
     close_paper_position,
@@ -266,10 +268,11 @@ NAVIGATION_ITEMS = [
     },
     {
         "label": "AI",
-        "href": "#/ai/model-registry",
+        "href": "#/ai/copilot",
         "icon": "brain",
         "permission": "ai-models:view",
         "children": [
+            {"label": "AI Copilot", "href": "#/ai/copilot", "icon": "message-circle", "permission": "ai-analyses:view"},
             {"label": "Model Training", "href": "#/ai/model-training", "icon": "activity", "permission": "ai-models:manage"},
             {"label": "Model Registry", "href": "#/ai/model-registry", "icon": "brain", "permission": "ai-models:view"},
         ],
@@ -793,6 +796,22 @@ def get_scanner_signals(
     _user: User = Depends(require_permission("signals:view")),
 ) -> list[ScannerRead]:
     return scanner_signals(db, min_confidence=min_confidence, timeframe=timeframe)
+
+
+@router.post("/copilot/chat", response_model=CopilotChatResponse, tags=["copilot"])
+def post_copilot_chat(
+    payload: CopilotChatRequest,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("ai-analyses:create")),
+) -> CopilotChatResponse:
+    return copilot_chat(db, payload.message)
+
+
+@router.get("/copilot/history", response_model=list[CopilotMessage], tags=["copilot"])
+def get_copilot_history(
+    _user: User = Depends(require_permission("ai-analyses:view")),
+) -> list[CopilotMessage]:
+    return copilot_history()
 
 
 @router.get("/strategies", response_model=list[StrategyRead], tags=["strategies"])
