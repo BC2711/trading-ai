@@ -21,6 +21,17 @@ class MarketDataWebsocket:
         for subscribers in self._subscriptions.values():
             subscribers.discard(websocket)
 
+    def connection_counts(self) -> dict[str, int]:
+        return {channel: len(subscribers) for channel, subscribers in self._subscriptions.items()}
+
+    def total_connections(self) -> int:
+        unique_connections = {
+            websocket
+            for subscribers in self._subscriptions.values()
+            for websocket in subscribers
+        }
+        return len(unique_connections)
+
     async def subscribe(self, websocket: WebSocket, channels: list[str]) -> list[str]:
         selected_channels = self.normalize_channels(channels)
         for channel in selected_channels:

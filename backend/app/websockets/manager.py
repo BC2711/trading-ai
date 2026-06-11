@@ -25,6 +25,12 @@ class WebSocketManager:
         for connections in self._connections.values():
             connections.discard(websocket)
 
+    def connection_counts(self) -> dict[str, int]:
+        return {stream: len(connections) for stream, connections in self._connections.items()}
+
+    def total_connections(self) -> int:
+        return sum(len(connections) for connections in self._connections.values())
+
     async def send(self, websocket: WebSocket, stream: str, payload: object) -> bool:
         try:
             await websocket.send_json(

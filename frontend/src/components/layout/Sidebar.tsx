@@ -93,7 +93,8 @@ const fallbackNavItems: NavItem[] = [
       { label: "Roles & Permissions", icon: ShieldCheck, href: "#/administration/roles-permissions", permission: "manage_users" },
       { label: "Audit Logs", icon: Activity, href: "#/administration/audit-logs", permission: "audit:view" },
       { label: "API Keys", icon: KeyRound, href: "#/api-keys", permission: "api-credentials:manage" },
-      { label: "Notification Settings", icon: Bell, href: "#/administration/notification-settings", permission: "notifications:manage" }
+      { label: "Notification Settings", icon: Bell, href: "#/administration/notification-settings", permission: "notifications:manage" },
+      { label: "System Monitoring", icon: Activity, href: "#/administration/system-monitoring", permission: "logs:view" }
     ]
   },
   {

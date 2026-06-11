@@ -18,6 +18,7 @@ from app.api.routes import (
     websocket_prices,
     websocket_signals,
 )
+from app.api.monitoring import router as monitoring_router
 from app.core.config import settings
 from app.core.monitoring import configure_monitoring
 from app.db.init_db import init_db
@@ -124,6 +125,7 @@ async def require_api_key(
 
 
 app.include_router(api_router, prefix=settings.api_prefix)
+app.include_router(monitoring_router, prefix=f"{settings.api_prefix}/monitoring")
 app.add_api_websocket_route("/ws/prices", websocket_prices)
 app.add_api_websocket_route("/ws/signals", websocket_signals)
 app.add_api_websocket_route("/ws/orders", websocket_orders)

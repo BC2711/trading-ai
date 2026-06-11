@@ -67,6 +67,9 @@ const RolesPermissionsPage = lazy(() =>
 const AuditLogsPage = lazy(() =>
   import("./pages/AuditLogsPage").then((module) => ({ default: module.AuditLogsPage }))
 );
+const SystemMonitoringPage = lazy(() =>
+  import("./pages/SystemMonitoringPage").then((module) => ({ default: module.SystemMonitoringPage }))
+);
 const RiskAnalyticsPage = lazy(() =>
   import("./pages/RiskAnalyticsPage").then((module) => ({ default: module.RiskAnalyticsPage }))
 );
@@ -116,6 +119,7 @@ function renderRoute(route: string) {
   if (route.startsWith("users")) return <UsersPage />;
   if (route.startsWith("administration/roles-permissions") || route.startsWith("roles-permissions")) return <RolesPermissionsPage />;
   if (route.startsWith("administration/audit-logs") || route === "activity/audit") return <AuditLogsPage />;
+  if (route.startsWith("administration/system-monitoring") || route.startsWith("system-monitoring")) return <SystemMonitoringPage />;
   if (route.startsWith("api-keys")) return <ApiKeysPage />;
   if (route.startsWith("strategies/builder")) return <StrategyBuilderPage />;
   if (route.startsWith("strategies")) return <StrategiesPage />;

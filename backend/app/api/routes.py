@@ -330,6 +330,12 @@ NAVIGATION_ITEMS = [
                 "icon": "bell",
                 "permission": "notifications:manage",
             },
+            {
+                "label": "System Monitoring",
+                "href": "#/administration/system-monitoring",
+                "icon": "activity",
+                "permission": "logs:view",
+            },
         ],
     },
     {
