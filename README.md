@@ -11,25 +11,243 @@ nginx/       Reverse proxy config
 monitoring/  Prometheus and Grafana provisioning
 ```
 
-## Run With Docker
+## Production Deployment
+
+The repository includes a production Docker Compose stack with:
+
+- `frontend`: static Vite build served by Nginx
+- `backend`: FastAPI application
+- `postgres`: PostgreSQL database
+- `redis`: Celery broker/cache backend
+- `celery_worker`: asynchronous task worker
+- `celery_beat`: scheduled task runner
+- `nginx`: public reverse proxy for frontend, API, metrics, and websockets
+
+Do not commit real secrets. Use placeholders in committed files and provide real values only in your deployment environment.
+
+### Environment Variables
+
+Create a production `.env` file from the template:
 
 ```bash
-docker compose up --build
+cp .env.example .env
 ```
 
-Backend: http://localhost:8000
+Set these values before starting production:
 
-Frontend: http://localhost:5173
+```env
+ENVIRONMENT=production
+DOCS_ENABLED=false
+NGINX_HTTP_PORT=80
+ALLOWED_HOSTS=["your-domain.example","www.your-domain.example"]
+CORS_ORIGINS=["https://your-domain.example"]
+API_KEY=replace-with-long-random-api-key
+JWT_SECRET=replace-with-long-random-jwt-secret
+JWT_REFRESH_SECRET=replace-with-different-long-random-refresh-secret
+CREDENTIAL_ENCRYPTION_SECRET=replace-with-long-random-encryption-secret
+POSTGRES_USER=trading
+POSTGRES_PASSWORD=replace-with-long-random-postgres-password
+POSTGRES_DB=trading
+VITE_API_BASE_URL=
+VITE_API_KEY=replace-with-same-value-as-api-key-if-api-key-auth-is-enabled
+```
 
-API docs: http://localhost:8000/docs
+Important backend variables:
 
-Nginx proxy: http://localhost
+- `DATABASE_URL`: SQLAlchemy URL. In Compose this is set to the internal PostgreSQL service automatically.
+- `REDIS_URL`: Redis URL for app-level Redis usage.
+- `CELERY_BROKER_URL`: Celery broker URL, usually Redis DB 1.
+- `CELERY_RESULT_BACKEND`: Celery result backend URL, usually Redis DB 2.
+- `MARKET_SYNC_SYMBOLS`, `MARKET_SYNC_TIMEFRAME`, `MARKET_SYNC_LIMIT`: historical market sync defaults.
+- `AI_PROVIDER`: `rules`, `openai`, `ollama`, or `local-llama`.
+- `OPENAI_API_KEY`: optional placeholder only; leave empty unless using OpenAI.
+- `SENTRY_DSN` and `VITE_SENTRY_DSN`: optional monitoring DSNs.
 
-Prometheus: http://localhost:9090
+Important frontend variables:
 
-Grafana: http://localhost:3000
+- `VITE_API_BASE_URL`: leave empty for same-origin API calls through Nginx, or set a public API origin.
+- `VITE_API_KEY`: public client API key value only if `API_KEY` auth is enabled.
+- `VITE_SENTRY_DSN`: optional frontend Sentry DSN.
 
-Default Grafana login: `admin` / `admin`
+### Backend Dockerfile
+
+The backend image is built from [backend/Dockerfile](backend/Dockerfile). It installs Python dependencies, copies the FastAPI app and Alembic migrations, runs as a non-root user, exposes port `8000`, and starts:
+
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers
+```
+
+### Backend Setup
+
+For production, the backend reads configuration from `.env` through Docker Compose. Required production values include `API_KEY`, `JWT_SECRET`, `JWT_REFRESH_SECRET`, `CREDENTIAL_ENCRYPTION_SECRET`, `ALLOWED_HOSTS`, `CORS_ORIGINS`, PostgreSQL settings, and Redis/Celery URLs.
+
+Build the backend image:
+
+```bash
+docker compose --env-file .env build backend
+```
+
+Run backend migrations:
+
+```bash
+docker compose --env-file .env run --rm backend alembic upgrade head
+```
+
+Start only the backend and its dependencies:
+
+```bash
+docker compose --env-file .env up -d postgres redis backend
+```
+
+### Frontend Dockerfile
+
+The frontend image is built from [frontend/Dockerfile](frontend/Dockerfile). It builds the Vite app with public `VITE_*` build args, then serves the compiled `dist` directory with Nginx on port `80`.
+
+### Frontend Setup
+
+For production behind the included Nginx proxy, leave `VITE_API_BASE_URL` empty so browser requests use the same origin. If API key auth is enabled, set `VITE_API_KEY` to the same placeholder value you replace in `API_KEY`.
+
+Build the frontend image:
+
+```bash
+docker compose --env-file .env build frontend
+```
+
+Start only the frontend after the backend is healthy:
+
+```bash
+docker compose --env-file .env up -d frontend
+```
+
+### Nginx
+
+The public reverse proxy is configured in [nginx/nginx.conf](nginx/nginx.conf). It routes:
+
+- `/` to the frontend container
+- `/api/` to the backend container
+- `/api/ws/` and `/ws/` to backend websocket routes
+- `/metrics` to backend metrics
+- `/health` to an Nginx health response
+
+### Database Migrations
+
+Run migrations after building images and before accepting production traffic:
+
+```bash
+docker compose run --rm backend alembic upgrade head
+```
+
+To inspect migration state:
+
+```bash
+docker compose run --rm backend alembic current
+docker compose run --rm backend alembic history
+```
+
+### Celery Commands
+
+Production Compose starts these automatically:
+
+```bash
+docker compose up -d celery_worker celery_beat
+```
+
+Manual worker command:
+
+```bash
+docker compose run --rm backend celery -A app.core.celery_app.celery_app worker --loglevel=info
+```
+
+Manual beat command:
+
+```bash
+docker compose run --rm backend celery -A app.core.celery_app.celery_app beat --loglevel=info
+```
+
+### Production Run Commands
+
+Build and start the full production stack:
+
+```bash
+docker compose --env-file .env up -d --build
+```
+
+Run migrations:
+
+```bash
+docker compose --env-file .env run --rm backend alembic upgrade head
+```
+
+View logs:
+
+```bash
+docker compose logs -f backend
+docker compose logs -f celery_worker
+docker compose logs -f nginx
+```
+
+Stop the stack:
+
+```bash
+docker compose down
+```
+
+Stop and remove persistent database/cache volumes only when intentionally resetting all data:
+
+```bash
+docker compose down -v
+```
+
+Production URLs:
+
+- Nginx and frontend: `http://localhost` or your configured domain
+- Backend API through proxy: `http://localhost/api`
+- Health: `http://localhost/health`
+
+API docs are disabled when `ENVIRONMENT=production`.
+
+### Local Development Commands
+
+Run backend locally:
+
+```bash
+cd backend
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload
+```
+
+Run frontend locally:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Run local tests and builds:
+
+```bash
+cd backend
+pip install -r requirements-dev.txt
+pytest
+alembic upgrade head
+
+cd ../frontend
+npm ci
+npm run build
+```
+
+Run Celery locally after Redis is available:
+
+```bash
+cd backend
+celery -A app.core.celery_app.celery_app worker --loglevel=info
+celery -A app.core.celery_app.celery_app beat --loglevel=info
+```
+
+For local Docker experimentation, copy `.env.example` to `.env`, replace placeholders, and run the same Compose commands. For pure local frontend development, `frontend/.env.example` defaults to `http://localhost:8000`.
 
 ## Local Backend
 
@@ -48,52 +266,6 @@ cd frontend
 npm install
 npm run dev
 ```
-
-## Production Baseline
-
-Before running with `ENVIRONMENT=production`, set these values explicitly:
-
-```env
-ENVIRONMENT=production
-API_KEY=replace-with-a-long-random-secret
-JWT_SECRET=replace-with-a-long-random-jwt-secret
-JWT_REFRESH_SECRET=replace-with-a-different-long-random-refresh-secret
-CREDENTIAL_ENCRYPTION_SECRET=replace-with-a-long-random-encryption-secret
-ALLOWED_HOSTS=["your-domain.com","api.your-domain.com"]
-CORS_ORIGINS=["https://your-domain.com"]
-DATABASE_URL=postgresql+psycopg://user:password@db-host:5432/trading
-REDIS_URL=redis://redis-host:6379/0
-CELERY_BROKER_URL=redis://redis-host:6379/1
-CELERY_RESULT_BACKEND=redis://redis-host:6379/2
-RATE_LIMIT_ENABLED=true
-RATE_LIMIT_REQUESTS=120
-RATE_LIMIT_WINDOW_SECONDS=60
-```
-
-Production mode fails fast if `API_KEY`, JWT secrets, credential encryption secret, or host/origin allowlists are unsafe. API routes under `/api/*` require the `X-API-Key` header when configured, except `/api/health` and auth endpoints. Trading and administration routes also require a bearer token with the required permission. The first registered user is promoted to admin; later public registrations are traders until an admin changes their role.
-
-Run database migrations before deploying new backend code:
-
-```bash
-cd backend
-alembic upgrade head
-```
-
-Recommended pre-deploy checks:
-
-```bash
-cd backend
-pip install -r requirements-dev.txt
-pytest
-alembic upgrade head
-
-cd ../frontend
-npm ci
-npm run build
-npm audit --audit-level=moderate
-```
-
-Docker Compose includes service health checks, but Docker Desktop or Docker Engine must be installed on the host. This environment did not have Docker available, so Compose validation must be run on the deployment machine.
 
 ## Initial API
 

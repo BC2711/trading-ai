@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
+  BarChart3,
   Bell,
   BrainCircuit,
   CalendarDays,
@@ -54,6 +55,7 @@ type NavItem = {
 
 const iconMap: Record<string, LucideIcon> = {
   activity: Activity,
+  "bar-chart-3": BarChart3,
   bell: Bell,
   brain: BrainCircuit,
   "calendar-days": CalendarDays,
@@ -144,6 +146,15 @@ const fallbackNavItems: NavItem[] = [
       { label: "Orders", icon: Activity, href: "#/trading/orders", permission: "orders:view" },
       { label: "Positions", icon: Wallet, href: "#/trading/positions", permission: "positions:view" },
       { label: "Trade History", icon: Clock3, href: "#/trade-history", permission: "orders:view" }
+    ]
+  },
+  {
+    label: "Analytics",
+    icon: BarChart3,
+    href: "#/analytics/performance",
+    permission: "portfolio:view",
+    children: [
+      { label: "Performance", icon: BarChart3, href: "#/analytics/performance", permission: "portfolio:view" }
     ]
   },
   {

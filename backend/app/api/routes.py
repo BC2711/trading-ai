@@ -83,6 +83,12 @@ from app.schemas.portfolio import (
     PortfolioPnlResponse,
     PortfolioSummaryResponse,
 )
+from app.schemas.analytics import (
+    AnalyticsEquityCurveResponse,
+    AnalyticsTradeRead,
+    PerformanceSummaryResponse,
+    StrategyComparisonResponse,
+)
 from app.schemas.brokers import (
     BrokerBalanceResponse,
     BrokerCancelResponse,
@@ -165,6 +171,12 @@ from app.services.ai.training import train_model
 from app.services.ai.training import compare_models, deploy_model, disable_model, retrain_model
 from app.services.ai.inference import PredictionService
 from app.services.ai.registry import ModelRegistryService
+from app.services.analytics import (
+    get_analytics_trades,
+    get_equity_curve as get_analytics_equity_curve,
+    get_performance_summary,
+    get_strategy_comparison,
+)
 from app.services.admin import (
     assign_roles_to_user,
     authenticate_user,
@@ -417,6 +429,20 @@ NAVIGATION_ITEMS = [
                 "href": "#/trade-history",
                 "icon": "clock",
                 "permission": "orders:view",
+            },
+        ],
+    },
+    {
+        "label": "Analytics",
+        "href": "#/analytics/performance",
+        "icon": "bar-chart-3",
+        "permission": "portfolio:view",
+        "children": [
+            {
+                "label": "Performance",
+                "href": "#/analytics/performance",
+                "icon": "bar-chart-3",
+                "permission": "portfolio:view",
             },
         ],
     },
@@ -2428,6 +2454,39 @@ def post_close_position(
         raise HTTPException(status_code=404, detail="Paper position not found")
 
     return position_to_schema(position)
+
+
+@router.get("/analytics/performance", response_model=PerformanceSummaryResponse, tags=["analytics"])
+def get_analytics_performance(
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("portfolio:view")),
+) -> PerformanceSummaryResponse:
+    return get_performance_summary(db)
+
+
+@router.get("/analytics/equity-curve", response_model=AnalyticsEquityCurveResponse, tags=["analytics"])
+def get_analytics_equity_curve_endpoint(
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("portfolio:view")),
+) -> AnalyticsEquityCurveResponse:
+    return get_analytics_equity_curve(db)
+
+
+@router.get("/analytics/strategies", response_model=StrategyComparisonResponse, tags=["analytics"])
+def get_analytics_strategies(
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("portfolio:view")),
+) -> StrategyComparisonResponse:
+    return get_strategy_comparison(db)
+
+
+@router.get("/analytics/trades", response_model=list[AnalyticsTradeRead], tags=["analytics"])
+def get_analytics_trades_endpoint(
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("portfolio:view")),
+) -> list[AnalyticsTradeRead]:
+    return list(reversed(get_analytics_trades(db, limit=limit)))
 
 
 @router.get("/portfolio/summary", response_model=PortfolioSummaryResponse, tags=["portfolio"])

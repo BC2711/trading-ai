@@ -608,6 +608,50 @@ def test_paper_trading_engine_simulates_orders_positions_and_reset() -> None:
     assert reset_response.json()["account"]["cash_balance"] == 10000
 
 
+def test_performance_analytics_endpoints_return_trade_metrics() -> None:
+    with TestClient(app) as client:
+        headers = auth_headers(client)
+        order_response = client.post(
+            "/api/paper/orders",
+            headers=headers,
+            json={"symbol": "ETHUSDT", "side": "buy", "order_type": "market", "quantity": 0.02},
+        )
+        assert order_response.status_code == 200, order_response.text
+        positions_response = client.get("/api/paper/positions", headers=headers)
+        position_id = positions_response.json()[0]["id"]
+        close_response = client.post(f"/api/paper/positions/{position_id}/close", headers=headers)
+        assert close_response.status_code == 200, close_response.text
+
+        performance_response = client.get("/api/analytics/performance", headers=headers)
+        equity_response = client.get("/api/analytics/equity-curve", headers=headers)
+        strategies_response = client.get("/api/analytics/strategies", headers=headers)
+        trades_response = client.get("/api/analytics/trades", headers=headers)
+
+    assert performance_response.status_code == 200
+    performance = performance_response.json()
+    assert {
+        "win_rate",
+        "loss_rate",
+        "average_win",
+        "average_loss",
+        "profit_factor",
+        "sharpe_ratio",
+        "max_drawdown",
+        "total_trades",
+        "winning_trades",
+        "losing_trades",
+        "best_trade",
+        "worst_trade",
+    }.issubset(performance)
+    assert performance["total_trades"] >= 1
+    assert equity_response.status_code == 200
+    assert "points" in equity_response.json()
+    assert strategies_response.status_code == 200
+    assert "strategies" in strategies_response.json()
+    assert trades_response.status_code == 200
+    assert trades_response.json()
+
+
 def test_broker_registry_hides_secrets_and_placeholder_execution_is_guarded() -> None:
     with TestClient(app) as client:
         headers = auth_headers(client)
