@@ -369,6 +369,53 @@ def test_sentiment_endpoints_return_market_and_symbol_sentiment() -> None:
     assert "News Sentiment" in {child["label"] for child in market_nav["children"]}
 
 
+def test_economic_calendar_endpoints_filter_and_create_events() -> None:
+    with TestClient(app) as client:
+        headers = auth_headers(client)
+        events_response = client.get("/api/calendar/events", headers=headers)
+        high_impact_response = client.get("/api/calendar/high-impact", headers=headers)
+        create_response = client.post(
+            "/api/calendar/events",
+            headers=headers,
+            json={
+                "event_name": "Canada Jobs Report",
+                "country": "Canada",
+                "impact_level": "medium",
+                "event_datetime": "2026-06-12T12:30:00Z",
+                "affected_assets": ["CAD", "USDCAD"],
+                "previous_value": "22K",
+                "forecast_value": "18K",
+                "actual_value": None,
+            },
+        )
+        filtered_response = client.get("/api/calendar/events", headers=headers, params={"country": "Canada", "asset": "CAD"})
+        navigation_response = client.get("/api/navigation", headers=headers)
+
+    assert events_response.status_code == 200
+    events = events_response.json()
+    assert events
+    assert {
+        "event_name",
+        "country",
+        "impact_level",
+        "event_datetime",
+        "affected_assets",
+        "previous_value",
+        "forecast_value",
+        "actual_value",
+        "trading_blackout_warning",
+        "high_impact",
+    }.issubset(events[0])
+    assert high_impact_response.status_code == 200
+    assert all(event["high_impact"] is True for event in high_impact_response.json())
+    assert create_response.status_code == 200
+    assert create_response.json()["event_name"] == "Canada Jobs Report"
+    assert filtered_response.status_code == 200
+    assert any(event["country"] == "Canada" for event in filtered_response.json())
+    market_nav = next(item for item in navigation_response.json() if item["label"] == "Market")
+    assert "Economic Calendar" in {child["label"] for child in market_nav["children"]}
+
+
 def test_portfolio_management_endpoints_return_aggregate_shapes() -> None:
     with TestClient(app) as client:
         headers = auth_headers(client)

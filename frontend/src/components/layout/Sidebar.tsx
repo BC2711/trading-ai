@@ -4,6 +4,7 @@ import {
   Activity,
   Bell,
   BrainCircuit,
+  CalendarDays,
   ChevronDown,
   Clock3,
   KeyRound,
@@ -55,6 +56,7 @@ const iconMap: Record<string, LucideIcon> = {
   activity: Activity,
   bell: Bell,
   brain: BrainCircuit,
+  "calendar-days": CalendarDays,
   clock: Clock3,
   key: KeyRound,
   "layout-dashboard": LayoutDashboard,
@@ -111,7 +113,8 @@ const fallbackNavItems: NavItem[] = [
     permission: "signals:view",
     children: [
       { label: "Market Scanner", icon: ScanSearch, href: "#/market/scanner", permission: "signals:view" },
-      { label: "News Sentiment", icon: Newspaper, href: "#/market/sentiment", permission: "signals:view" }
+      { label: "News Sentiment", icon: Newspaper, href: "#/market/sentiment", permission: "signals:view" },
+      { label: "Economic Calendar", icon: CalendarDays, href: "#/market/calendar", permission: "signals:view" }
     ]
   },
   {

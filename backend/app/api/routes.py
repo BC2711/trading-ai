@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 
@@ -85,6 +87,7 @@ from app.schemas.brokers import (
     BrokerPositionsResponse,
     BrokerStatusRead,
 )
+from app.schemas.calendar import EconomicCalendarEventCreate, EconomicCalendarEventRead
 from app.schemas.copilot import CopilotChatRequest, CopilotChatResponse, CopilotMessage
 from app.schemas.features import FeatureCalculationRequest, FeatureCalculationResponse, FeatureSetRead, MarketFeatureRead
 from app.schemas.risk import (
@@ -166,6 +169,7 @@ from app.services.admin import (
 from app.services.audit import audit_event_to_schema, list_audit_events
 from app.services.backtesting.engine import get_backtest_run, list_backtest_runs, run_backtest
 from app.services.backtesting.walk_forward import get_walk_forward_run, run_walk_forward
+from app.services.calendar import create_event as create_calendar_event, high_impact_events, list_events as list_calendar_events
 from app.services.copilot import chat as copilot_chat, history as copilot_history
 from app.services.execution.paper import (
     cancel_paper_order,
@@ -267,6 +271,7 @@ NAVIGATION_ITEMS = [
         "children": [
             {"label": "Market Scanner", "href": "#/market/scanner", "icon": "scan-search", "permission": "signals:view"},
             {"label": "News Sentiment", "href": "#/market/sentiment", "icon": "newspaper", "permission": "signals:view"},
+            {"label": "Economic Calendar", "href": "#/market/calendar", "icon": "calendar-days", "permission": "signals:view"},
         ],
     },
     {
@@ -826,6 +831,39 @@ def get_symbol_sentiment_endpoint(
     _user: User = Depends(require_permission("signals:view")),
 ) -> SentimentResponse:
     return get_symbol_sentiment(db, symbol)
+
+
+@router.get("/calendar/events", response_model=list[EconomicCalendarEventRead], tags=["calendar"])
+def get_calendar_events(
+    country: str | None = Query(None),
+    impact_level: str | None = Query(None, pattern="^(low|medium|high)$"),
+    asset: str | None = Query(None),
+    start: datetime | None = Query(None),
+    end: datetime | None = Query(None),
+    _user: User = Depends(require_permission("signals:view")),
+) -> list[EconomicCalendarEventRead]:
+    return list_calendar_events(
+        country=country,
+        impact_level=impact_level,
+        asset=asset,
+        start=start,
+        end=end,
+    )
+
+
+@router.get("/calendar/high-impact", response_model=list[EconomicCalendarEventRead], tags=["calendar"])
+def get_high_impact_calendar_events(
+    _user: User = Depends(require_permission("signals:view")),
+) -> list[EconomicCalendarEventRead]:
+    return high_impact_events()
+
+
+@router.post("/calendar/events", response_model=EconomicCalendarEventRead, tags=["calendar"])
+def post_calendar_event(
+    payload: EconomicCalendarEventCreate,
+    _user: User = Depends(require_permission("signals:generate")),
+) -> EconomicCalendarEventRead:
+    return create_calendar_event(payload)
 
 
 @router.post("/copilot/chat", response_model=CopilotChatResponse, tags=["copilot"])
