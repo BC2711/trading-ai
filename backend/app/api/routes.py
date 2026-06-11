@@ -1,9 +1,10 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 
 from app.db.deps import get_db
+from app.db.session import SessionLocal
 from app.models import MarketCandle, MarketOrderBookSnapshot, MarketTick, MarketTrade, Signal
 from app.schemas.trading import (
     AIModelPrediction,
@@ -209,6 +210,7 @@ from app.services.strategy_builder import (
 )
 from app.services.execution.brokers import BrokerAdapterError, BrokerNotImplementedError, BrokerService
 from app.services.signals import generate_signals, list_signals
+from app.websockets.manager import websocket_manager
 from app.workers.tasks import refresh_market_data
 
 router = APIRouter()
@@ -396,6 +398,67 @@ async def websocket_market_data(websocket: WebSocket, channels: str | None = Non
                     await market_data_websocket.subscribe(websocket, [str(channel) for channel in requested])
     except WebSocketDisconnect:
         market_data_websocket.disconnect(websocket)
+
+
+@router.websocket("/ws/prices")
+async def websocket_prices(websocket: WebSocket, token: str | None = None):
+    if not await _websocket_token_allowed(websocket, token):
+        return
+    try:
+        await websocket_manager.stream(websocket, "prices", _prices_stream_payload, interval_seconds=5)
+    except WebSocketDisconnect:
+        websocket_manager.disconnect(websocket, "prices")
+
+
+@router.websocket("/ws/signals")
+async def websocket_signals(websocket: WebSocket, token: str | None = None):
+    if not await _websocket_token_allowed(websocket, token):
+        return
+    try:
+        await websocket_manager.stream(websocket, "signals", _signals_stream_payload, interval_seconds=8)
+    except WebSocketDisconnect:
+        websocket_manager.disconnect(websocket, "signals")
+
+
+@router.websocket("/ws/orders")
+async def websocket_orders(websocket: WebSocket, token: str | None = None):
+    if not await _websocket_token_allowed(websocket, token):
+        return
+    try:
+        await websocket_manager.stream(websocket, "orders", _orders_stream_payload, interval_seconds=6)
+    except WebSocketDisconnect:
+        websocket_manager.disconnect(websocket, "orders")
+
+
+@router.websocket("/ws/positions")
+async def websocket_positions(websocket: WebSocket, token: str | None = None):
+    if not await _websocket_token_allowed(websocket, token):
+        return
+    try:
+        await websocket_manager.stream(websocket, "positions", _positions_stream_payload, interval_seconds=6)
+    except WebSocketDisconnect:
+        websocket_manager.disconnect(websocket, "positions")
+
+
+@router.websocket("/ws/portfolio")
+async def websocket_portfolio(websocket: WebSocket, token: str | None = None):
+    if not await _websocket_token_allowed(websocket, token):
+        return
+    try:
+        await websocket_manager.stream(websocket, "portfolio", _portfolio_stream_payload, interval_seconds=8)
+    except WebSocketDisconnect:
+        websocket_manager.disconnect(websocket, "portfolio")
+
+
+@router.websocket("/ws/notifications")
+async def websocket_notifications(websocket: WebSocket, token: str | None = None):
+    if not await _websocket_token_allowed(websocket, token):
+        return
+    try:
+        await websocket_manager.stream(websocket, "notifications", _notifications_stream_payload, interval_seconds=10)
+    except WebSocketDisconnect:
+        websocket_manager.disconnect(websocket, "notifications")
+
 
 @router.get("/health", tags=["health"])
 def health_check() -> dict[str, str]:
@@ -1801,6 +1864,63 @@ def signal_to_schema(signal: Signal) -> SignalRead:
         status=signal.status,
         created_at=signal.created_at,
     )
+
+
+async def _websocket_token_allowed(websocket: WebSocket, token: str | None) -> bool:
+    if token and not decode_jwt(token):
+        await websocket.close(code=1008)
+        return False
+    return True
+
+
+def _prices_stream_payload() -> list[dict]:
+    with SessionLocal() as db:
+        prices = []
+        for symbol in list_symbols(db):
+            candles = list_candles(db, symbol.symbol, timeframe=settings.market_sync_timeframe, limit=2)
+            latest = candles[-1] if candles else None
+            previous = candles[-2] if len(candles) > 1 else None
+            if latest is None:
+                continue
+            change_pct = ((latest.close - previous.close) / previous.close) if previous and previous.close else 0.0
+            prices.append(
+                {
+                    "symbol": symbol.symbol,
+                    "price": latest.close,
+                    "change_pct": round(change_pct, 6),
+                    "timeframe": latest.timeframe,
+                    "updated_at": latest.opened_at.isoformat(),
+                }
+            )
+        return prices
+
+
+def _signals_stream_payload() -> list[dict]:
+    with SessionLocal() as db:
+        return [
+            item.model_dump(mode="json")
+            for item in get_scanner_results(db, timeframe=settings.market_sync_timeframe)
+        ]
+
+
+def _orders_stream_payload() -> list[dict]:
+    with SessionLocal() as db:
+        return [order.model_dump(mode="json") for order in PaperTradingService(db).list_orders(limit=100)]
+
+
+def _positions_stream_payload() -> list[dict]:
+    with SessionLocal() as db:
+        return [position.model_dump(mode="json") for position in PaperTradingService(db).list_positions(status="all")]
+
+
+def _portfolio_stream_payload() -> dict:
+    with SessionLocal() as db:
+        return get_portfolio_summary(db).model_dump(mode="json")
+
+
+def _notifications_stream_payload() -> list[dict]:
+    with SessionLocal() as db:
+        return [NotificationRead.model_validate(notification).model_dump(mode="json") for notification in list_notifications(db, unread_only=False)]
 
 
 def _filter_scanner_results(

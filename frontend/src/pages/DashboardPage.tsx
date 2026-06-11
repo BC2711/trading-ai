@@ -53,6 +53,7 @@ import {
 } from "../services/api";
 import type { AIAnalysis, AIProviderStatus } from "../services/api";
 import { useSignals } from "../hooks/useSignals";
+import type { LivePrice } from "../hooks/useRealtimeStreams";
 import { useTradingStore } from "../store/useTradingStore";
 import { cn } from "../utils/cn";
 
@@ -122,6 +123,11 @@ export function DashboardPage() {
     queryFn: () => fetchCandles(selectedSymbol, backendTimeframe, 120),
     enabled: Boolean(selectedSymbol)
   });
+  const livePricesQuery = useQuery<LivePrice[]>({
+    queryKey: ["live-prices"],
+    queryFn: async () => [],
+    staleTime: 10_000
+  });
 
   const syncMutation = useMutation({
     mutationFn: () =>
@@ -151,9 +157,12 @@ export function DashboardPage() {
   });
 
   const latestCandle = candlesQuery.data?.at(-1);
+  const livePrice = livePricesQuery.data?.find((item) => item.symbol === selectedSymbol);
   const previousCandle = candlesQuery.data?.at(-2);
   const priceChangePercent =
-    latestCandle && previousCandle
+    livePrice
+      ? livePrice.change_pct * 100
+      : latestCandle && previousCandle
       ? ((latestCandle.close - previousCandle.close) / previousCandle.close) * 100
       : 0;
   const riskSettings = riskSettingsQuery.data?.[0];
@@ -307,8 +316,8 @@ export function DashboardPage() {
   const metrics = [
     {
       label: `${selectedSymbol} Last Close`,
-      value: latestCandle ? formatCurrency(latestCandle.close) : "Loading",
-      trend: `${priceChangePercent >= 0 ? "+" : ""}${priceChangePercent.toFixed(2)}% candle`,
+      value: livePrice ? formatCurrency(livePrice.price) : latestCandle ? formatCurrency(latestCandle.close) : "Loading",
+      trend: `${priceChangePercent >= 0 ? "+" : ""}${priceChangePercent.toFixed(2)}% ${livePrice ? "live" : "candle"}`,
       trendDirection: priceChangePercent > 0 ? ("up" as const) : priceChangePercent < 0 ? ("down" as const) : ("flat" as const),
       tone: "cyan" as const,
       icon: CircleDollarSign,

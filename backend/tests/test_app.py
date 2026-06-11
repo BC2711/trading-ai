@@ -416,6 +416,32 @@ def test_economic_calendar_endpoints_filter_and_create_events() -> None:
     assert "Economic Calendar" in {child["label"] for child in market_nav["children"]}
 
 
+def test_websocket_stream_routes_emit_payloads() -> None:
+    with TestClient(app) as client:
+        for path in [
+            "/api/ws/prices",
+            "/api/ws/signals",
+            "/api/ws/orders",
+            "/api/ws/positions",
+            "/api/ws/portfolio",
+            "/api/ws/notifications",
+            "/ws/prices",
+            "/ws/signals",
+            "/ws/orders",
+            "/ws/positions",
+            "/ws/portfolio",
+            "/ws/notifications",
+        ]:
+            with client.websocket_connect(path) as websocket:
+                connected = websocket.receive_json()
+                payload = websocket.receive_json()
+
+            assert connected["type"] == path.rsplit("/", 1)[-1]
+            assert connected["payload"]["status"] == "connected"
+            assert payload["type"] == path.rsplit("/", 1)[-1]
+            assert "payload" in payload
+
+
 def test_portfolio_management_endpoints_return_aggregate_shapes() -> None:
     with TestClient(app) as client:
         headers = auth_headers(client)

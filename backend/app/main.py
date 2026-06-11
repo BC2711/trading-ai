@@ -9,7 +9,15 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse, Response
 from starlette.requests import Request
 
-from app.api.routes import router as api_router
+from app.api.routes import (
+    router as api_router,
+    websocket_notifications,
+    websocket_orders,
+    websocket_portfolio,
+    websocket_positions,
+    websocket_prices,
+    websocket_signals,
+)
 from app.core.config import settings
 from app.core.monitoring import configure_monitoring
 from app.db.init_db import init_db
@@ -116,6 +124,12 @@ async def require_api_key(
 
 
 app.include_router(api_router, prefix=settings.api_prefix)
+app.add_api_websocket_route("/ws/prices", websocket_prices)
+app.add_api_websocket_route("/ws/signals", websocket_signals)
+app.add_api_websocket_route("/ws/orders", websocket_orders)
+app.add_api_websocket_route("/ws/positions", websocket_positions)
+app.add_api_websocket_route("/ws/portfolio", websocket_portfolio)
+app.add_api_websocket_route("/ws/notifications", websocket_notifications)
 configure_monitoring(app)
 
 

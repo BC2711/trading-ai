@@ -3,6 +3,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { AppLayout } from "./components/layout/AppLayout";
 import { Card } from "./components/ui/Card";
 import { LoadingSpinner } from "./components/ui/LoadingSpinner";
+import { useRealtimeStreams } from "./hooks/useRealtimeStreams";
 import {
   AiModelsPage,
   ApiKeysPage,
@@ -70,6 +71,7 @@ const ActivityPage = lazy(() =>
 export function App() {
   const [route, setRoute] = useState(getRoute());
   const [authenticated, setAuthenticated] = useState(() => Boolean(localStorage.getItem("trading_ai_token")));
+  useRealtimeStreams(authenticated);
 
   useEffect(() => {
     const handleHashChange = () => setRoute(getRoute());
