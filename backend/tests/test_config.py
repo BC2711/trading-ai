@@ -51,6 +51,60 @@ def test_schema_compatibility_adds_missing_risk_setting_columns(tmp_path) -> Non
     assert {"max_consecutive_losses", "emergency_stop", "live_trading_enabled"}.issubset(columns)
 
 
+def test_schema_compatibility_adds_missing_strategy_columns(tmp_path) -> None:
+    database_path = tmp_path / "legacy_strategy.sqlite"
+    engine = create_engine(f"sqlite:///{database_path.as_posix()}")
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                CREATE TABLE strategies (
+                    id INTEGER PRIMARY KEY,
+                    name VARCHAR(120) NOT NULL,
+                    description VARCHAR(500) NOT NULL,
+                    timeframe VARCHAR(8) NOT NULL,
+                    status VARCHAR(16) NOT NULL,
+                    created_at DATETIME NOT NULL
+                )
+                """
+            )
+        )
+
+    ensure_schema_compatibility(engine)
+
+    columns = {column["name"] for column in inspect(engine).get_columns("strategies")}
+    assert {"parameters", "enabled", "performance"}.issubset(columns)
+
+
+def test_schema_compatibility_adds_missing_market_candle_columns(tmp_path) -> None:
+    database_path = tmp_path / "legacy_market.sqlite"
+    engine = create_engine(f"sqlite:///{database_path.as_posix()}")
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                CREATE TABLE market_candles (
+                    id INTEGER PRIMARY KEY,
+                    symbol_id INTEGER NOT NULL,
+                    timeframe VARCHAR(8) NOT NULL,
+                    opened_at DATETIME NOT NULL,
+                    open FLOAT NOT NULL,
+                    high FLOAT NOT NULL,
+                    low FLOAT NOT NULL,
+                    close FLOAT NOT NULL,
+                    volume FLOAT NOT NULL,
+                    created_at DATETIME NOT NULL
+                )
+                """
+            )
+        )
+
+    ensure_schema_compatibility(engine)
+
+    columns = {column["name"] for column in inspect(engine).get_columns("market_candles")}
+    assert "spread" in columns
+
+
 def test_production_requires_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.delenv("API_KEY", raising=False)

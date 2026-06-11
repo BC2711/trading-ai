@@ -284,6 +284,38 @@ def test_ai_feature_store_calculates_lists_and_exposes_feature_sets() -> None:
     assert "default-ai-trading" in {item["name"] for item in sets_response.json()}
 
 
+def test_market_scanner_endpoints_return_scan_results() -> None:
+    with TestClient(app) as client:
+        headers = auth_headers(client)
+        scanner_response = client.get("/api/scanner", headers=headers)
+        run_response = client.post("/api/scanner/run", headers=headers, json={"timeframe": "15m", "lookback": 240})
+        signals_response = client.get("/api/scanner/signals", headers=headers)
+        navigation_response = client.get("/api/navigation", headers=headers)
+
+    assert scanner_response.status_code == 200
+    rows = scanner_response.json()
+    assert rows
+    assert {
+        "symbol",
+        "current_price",
+        "signal",
+        "confidence",
+        "risk_level",
+        "rsi",
+        "macd_signal",
+        "trend_direction",
+        "volatility",
+        "recommended_action",
+        "created_at",
+    }.issubset(rows[0])
+    assert run_response.status_code == 200
+    assert run_response.json()
+    assert signals_response.status_code == 200
+    navigation = navigation_response.json()
+    market = next(item for item in navigation if item["label"] == "Market")
+    assert market["children"][0]["label"] == "Market Scanner"
+
+
 def test_portfolio_management_endpoints_return_aggregate_shapes() -> None:
     with TestClient(app) as client:
         headers = auth_headers(client)

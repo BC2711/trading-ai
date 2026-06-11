@@ -114,6 +114,7 @@ from app.schemas.strategy_builder import (
     StrategyRuleRead,
     StrategyRulesUpdate,
 )
+from app.schemas.scanner import ScannerRead, ScannerRunRequest
 from app.core.config import settings
 from app.core.security import create_access_token, create_refresh_token, decode_jwt, decode_refresh_token
 from app.db.auth import get_current_user as require_current_user, require_permission, require_role
@@ -190,6 +191,7 @@ from app.services.risk import (
     validate_trade_request,
 )
 from app.services.risk.monte_carlo import get_monte_carlo_run, run_monte_carlo
+from app.services.scanner import get_scanner_results, run_scanner, scanner_signals
 from app.services.strategy_builder import (
     create_strategy_builder,
     evaluate_strategy,
@@ -251,6 +253,15 @@ NAVIGATION_ITEMS = [
             {"label": "Backtests", "href": "#/backtests", "icon": "activity", "permission": "backtests:view"},
             {"label": "Walk-Forward Testing", "href": "#/backtests/walk-forward", "icon": "activity", "permission": "backtests:run"},
             {"label": "AI Models", "href": "#/ai-models", "icon": "brain", "permission": "ai-models:view"},
+        ],
+    },
+    {
+        "label": "Market",
+        "href": "#/market/scanner",
+        "icon": "scan-search",
+        "permission": "signals:view",
+        "children": [
+            {"label": "Market Scanner", "href": "#/market/scanner", "icon": "scan-search", "permission": "signals:view"},
         ],
     },
     {
@@ -748,6 +759,40 @@ def post_generate_signals(
 ) -> list[SignalRead]:
     payload = payload or SignalGenerateRequest()
     return [signal_to_schema(signal) for signal in generate_signals(db, payload.symbol, payload.timeframe)]
+
+
+@router.get("/scanner", response_model=list[ScannerRead], tags=["scanner"])
+def get_scanner(
+    symbol: str | None = Query(None),
+    signal: str | None = Query(None, pattern="^(buy|sell|hold)$"),
+    min_confidence: float | None = Query(None, ge=0, le=1),
+    risk_level: str | None = Query(None, pattern="^(low|medium|high)$"),
+    timeframe: str = Query("15m"),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("signals:view")),
+) -> list[ScannerRead]:
+    results = get_scanner_results(db, symbols=[symbol] if symbol else None, timeframe=timeframe)
+    return _filter_scanner_results(results, signal, min_confidence, risk_level)
+
+
+@router.post("/scanner/run", response_model=list[ScannerRead], tags=["scanner"])
+def post_scanner_run(
+    payload: ScannerRunRequest | None = None,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("signals:generate")),
+) -> list[ScannerRead]:
+    payload = payload or ScannerRunRequest()
+    return run_scanner(db, symbols=payload.symbols, timeframe=payload.timeframe, lookback=payload.lookback)
+
+
+@router.get("/scanner/signals", response_model=list[ScannerRead], tags=["scanner"])
+def get_scanner_signals(
+    min_confidence: float = Query(0.6, ge=0, le=1),
+    timeframe: str = Query("15m"),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("signals:view")),
+) -> list[ScannerRead]:
+    return scanner_signals(db, min_confidence=min_confidence, timeframe=timeframe)
 
 
 @router.get("/strategies", response_model=list[StrategyRead], tags=["strategies"])
@@ -1669,6 +1714,22 @@ def signal_to_schema(signal: Signal) -> SignalRead:
         status=signal.status,
         created_at=signal.created_at,
     )
+
+
+def _filter_scanner_results(
+    results: list[ScannerRead],
+    signal: str | None,
+    min_confidence: float | None,
+    risk_level: str | None,
+) -> list[ScannerRead]:
+    filtered = results
+    if signal:
+        filtered = [result for result in filtered if result.signal == signal]
+    if min_confidence is not None:
+        filtered = [result for result in filtered if result.confidence >= min_confidence]
+    if risk_level:
+        filtered = [result for result in filtered if result.risk_level == risk_level]
+    return filtered
 
 
 def market_candle_to_schema(candle: MarketCandle) -> MarketCandleRead:

@@ -9,6 +9,7 @@ import {
   KeyRound,
   LayoutDashboard,
   Menu,
+  ScanSearch,
   Settings,
   Sparkles,
   SlidersHorizontal,
@@ -55,6 +56,7 @@ const iconMap: Record<string, LucideIcon> = {
   clock: Clock3,
   key: KeyRound,
   "layout-dashboard": LayoutDashboard,
+  "scan-search": ScanSearch,
   "shield-check": ShieldCheck,
   "sliders-horizontal": SlidersHorizontal,
   sparkles: Sparkles,
@@ -96,6 +98,15 @@ const fallbackNavItems: NavItem[] = [
       { label: "Backtests", icon: Activity, href: "#/backtests", permission: "backtests:view" },
       { label: "Walk-Forward Testing", icon: Activity, href: "#/backtests/walk-forward", permission: "backtests:run" },
       { label: "AI Models", icon: BrainCircuit, href: "#/ai-models", permission: "ai-models:view" }
+    ]
+  },
+  {
+    label: "Market",
+    icon: ScanSearch,
+    href: "#/market/scanner",
+    permission: "signals:view",
+    children: [
+      { label: "Market Scanner", icon: ScanSearch, href: "#/market/scanner", permission: "signals:view" }
     ]
   },
   {
