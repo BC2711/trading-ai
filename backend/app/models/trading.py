@@ -117,6 +117,172 @@ class MarketTrade(Base):
     symbol_ref: Mapped[Symbol] = relationship(back_populates="trades")
 
 
+class Candle(Base):
+    __tablename__ = "candles"
+    __table_args__ = (
+        UniqueConstraint("symbol_id", "timeframe", "opened_at", name="uq_candle_symbol_timeframe_opened"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    symbol_id: Mapped[int] = mapped_column(ForeignKey("symbols.id", ondelete="CASCADE"), index=True)
+    timeframe: Mapped[str] = mapped_column(String(8), index=True)
+    opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    open: Mapped[float] = mapped_column(Float)
+    high: Mapped[float] = mapped_column(Float)
+    low: Mapped[float] = mapped_column(Float)
+    close: Mapped[float] = mapped_column(Float)
+    volume: Mapped[float] = mapped_column(Float)
+    spread: Mapped[float] = mapped_column(Float, default=0.0)
+    source: Mapped[str] = mapped_column(String(32), default="import", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+
+    symbol_ref: Mapped[Symbol] = relationship()
+
+
+class Tick(Base):
+    __tablename__ = "ticks"
+    __table_args__ = (
+        UniqueConstraint("symbol_id", "exchange", "tick_time", name="uq_tick_symbol_exchange_time"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    symbol_id: Mapped[int] = mapped_column(ForeignKey("symbols.id", ondelete="CASCADE"), index=True)
+    exchange: Mapped[str] = mapped_column(String(32), default="binance", index=True)
+    tick_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    bid: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ask: Mapped[float | None] = mapped_column(Float, nullable=True)
+    price: Mapped[float] = mapped_column(Float)
+    volume: Mapped[float] = mapped_column(Float, default=0.0)
+    spread: Mapped[float] = mapped_column(Float, default=0.0)
+    source: Mapped[str] = mapped_column(String(32), default="import", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+
+    symbol_ref: Mapped[Symbol] = relationship()
+
+
+class Prediction(Base):
+    __tablename__ = "predictions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    symbol_id: Mapped[int] = mapped_column(ForeignKey("symbols.id", ondelete="CASCADE"), index=True)
+    model_id: Mapped[int | None] = mapped_column(ForeignKey("ai_model_metadata.id", ondelete="SET NULL"), nullable=True, index=True)
+    signal_id: Mapped[int | None] = mapped_column(ForeignKey("signals.id", ondelete="SET NULL"), nullable=True, index=True)
+    timeframe: Mapped[str] = mapped_column(String(8), default="15m", index=True)
+    prediction_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+    target: Mapped[str] = mapped_column(String(80), default="next_close_direction", index=True)
+    horizon: Mapped[str] = mapped_column(String(24), default="next_candle")
+    direction: Mapped[str] = mapped_column(String(16), index=True)
+    confidence: Mapped[float] = mapped_column(Float)
+    predicted_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    features: Mapped[dict] = mapped_column(JSON, default=dict)
+    prediction_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+
+    symbol_ref: Mapped[Symbol] = relationship()
+    model_ref: Mapped["AIModelMetadata | None"] = relationship()
+    signal_ref: Mapped["Signal | None"] = relationship()
+
+
+class WarehouseTrade(Base):
+    __tablename__ = "trades"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    symbol_id: Mapped[int] = mapped_column(ForeignKey("symbols.id", ondelete="CASCADE"), index=True)
+    signal_id: Mapped[int | None] = mapped_column(ForeignKey("signals.id", ondelete="SET NULL"), nullable=True, index=True)
+    prediction_id: Mapped[int | None] = mapped_column(ForeignKey("predictions.id", ondelete="SET NULL"), nullable=True, index=True)
+    order_id: Mapped[int | None] = mapped_column(ForeignKey("paper_orders.id", ondelete="SET NULL"), nullable=True, index=True)
+    exchange: Mapped[str] = mapped_column(String(32), default="paper", index=True)
+    external_trade_id: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    side: Mapped[str] = mapped_column(String(12), index=True)
+    quantity: Mapped[float] = mapped_column(Float)
+    price: Mapped[float] = mapped_column(Float)
+    fee: Mapped[float] = mapped_column(Float, default=0.0)
+    realized_pnl: Mapped[float] = mapped_column(Float, default=0.0)
+    status: Mapped[str] = mapped_column(String(16), default="filled", index=True)
+    source: Mapped[str] = mapped_column(String(32), default="paper", index=True)
+    executed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+    trade_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+
+    symbol_ref: Mapped[Symbol] = relationship()
+    signal_ref: Mapped["Signal | None"] = relationship()
+    prediction_ref: Mapped[Prediction | None] = relationship()
+    order_ref: Mapped["PaperOrder | None"] = relationship()
+
+
+class BacktestResult(Base):
+    __tablename__ = "backtest_results"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    symbol_id: Mapped[int] = mapped_column(ForeignKey("symbols.id", ondelete="CASCADE"), index=True)
+    strategy_id: Mapped[int | None] = mapped_column(ForeignKey("strategies.id", ondelete="SET NULL"), nullable=True, index=True)
+    model_id: Mapped[int | None] = mapped_column(ForeignKey("ai_model_metadata.id", ondelete="SET NULL"), nullable=True, index=True)
+    run_id: Mapped[int | None] = mapped_column(ForeignKey("backtest_runs.id", ondelete="SET NULL"), nullable=True, index=True)
+    timeframe: Mapped[str] = mapped_column(String(8), default="15m", index=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    initial_balance: Mapped[float] = mapped_column(Float, default=10000.0)
+    final_balance: Mapped[float] = mapped_column(Float, default=10000.0)
+    total_return: Mapped[float] = mapped_column(Float, default=0.0)
+    win_rate: Mapped[float] = mapped_column(Float, default=0.0)
+    max_drawdown: Mapped[float] = mapped_column(Float, default=0.0)
+    sharpe_ratio: Mapped[float] = mapped_column(Float, default=0.0)
+    profit_factor: Mapped[float] = mapped_column(Float, default=0.0)
+    trades_count: Mapped[int] = mapped_column(Integer, default=0)
+    metrics: Mapped[dict] = mapped_column(JSON, default=dict)
+    equity_curve: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    parameters: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+
+    symbol_ref: Mapped[Symbol] = relationship()
+    strategy_ref: Mapped["Strategy | None"] = relationship()
+    model_ref: Mapped["AIModelMetadata | None"] = relationship()
+    run_ref: Mapped["BacktestRun | None"] = relationship()
+
+
+class ModelMetric(Base):
+    __tablename__ = "model_metrics"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    model_id: Mapped[int | None] = mapped_column(ForeignKey("ai_model_metadata.id", ondelete="SET NULL"), nullable=True, index=True)
+    symbol_id: Mapped[int | None] = mapped_column(ForeignKey("symbols.id", ondelete="SET NULL"), nullable=True, index=True)
+    model_name: Mapped[str] = mapped_column(String(160), default="", index=True)
+    model_type: Mapped[str] = mapped_column(String(64), default="", index=True)
+    timeframe: Mapped[str] = mapped_column(String(8), default="15m", index=True)
+    dataset: Mapped[str] = mapped_column(String(80), default="validation", index=True)
+    metric_name: Mapped[str] = mapped_column(String(80), index=True)
+    metric_value: Mapped[float] = mapped_column(Float)
+    metrics: Mapped[dict] = mapped_column(JSON, default=dict)
+    training_window_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    training_window_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+
+    model_ref: Mapped["AIModelMetadata | None"] = relationship()
+    symbol_ref: Mapped[Symbol | None] = relationship()
+
+
+class PortfolioSnapshot(Base):
+    __tablename__ = "portfolio_snapshots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    account_id: Mapped[int | None] = mapped_column(ForeignKey("paper_accounts.id", ondelete="SET NULL"), nullable=True, index=True)
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+    total_equity: Mapped[float] = mapped_column(Float, default=0.0)
+    cash_balance: Mapped[float] = mapped_column(Float, default=0.0)
+    margin_used: Mapped[float] = mapped_column(Float, default=0.0)
+    total_exposure: Mapped[float] = mapped_column(Float, default=0.0)
+    realized_pnl: Mapped[float] = mapped_column(Float, default=0.0)
+    unrealized_pnl: Mapped[float] = mapped_column(Float, default=0.0)
+    positions: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    allocation: Mapped[dict] = mapped_column(JSON, default=dict)
+    metrics: Mapped[dict] = mapped_column(JSON, default=dict)
+    source: Mapped[str] = mapped_column(String(32), default="portfolio", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+
+    account_ref: Mapped["PaperAccount | None"] = relationship()
+
+
 class FeatureSet(Base):
     __tablename__ = "feature_sets"
 

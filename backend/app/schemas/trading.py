@@ -44,6 +44,174 @@ class MarketCandleRead(BaseModel):
     spread: float = 0.0
 
 
+class WarehouseCandleRead(MarketCandleRead):
+    source: str = "import"
+    created_at: datetime
+
+
+class WarehouseTickRead(BaseModel):
+    id: int
+    symbol: str
+    exchange: str
+    tick_time: datetime
+    bid: float | None
+    ask: float | None
+    price: float
+    volume: float
+    spread: float
+    source: str
+    created_at: datetime
+
+
+class PredictionCreate(BaseModel):
+    symbol: str = "BTCUSDT"
+    model_id: int | None = None
+    signal_id: int | None = None
+    timeframe: str = "15m"
+    prediction_time: datetime | None = None
+    target: str = "next_close_direction"
+    horizon: str = "next_candle"
+    direction: str = Field(..., pattern="^(buy|sell|hold|watch)$")
+    confidence: float = Field(..., ge=0, le=1)
+    predicted_value: float | None = None
+    features: dict = Field(default_factory=dict)
+    metadata: dict = Field(default_factory=dict)
+
+
+class PredictionRead(BaseModel):
+    id: int
+    symbol: str
+    model_id: int | None
+    signal_id: int | None
+    timeframe: str
+    prediction_time: datetime
+    target: str
+    horizon: str
+    direction: str
+    confidence: float
+    predicted_value: float | None
+    features: dict
+    metadata: dict
+    created_at: datetime
+
+
+class WarehouseTradeCreate(BaseModel):
+    symbol: str = "BTCUSDT"
+    signal_id: int | None = None
+    prediction_id: int | None = None
+    order_id: int | None = None
+    exchange: str = "paper"
+    external_trade_id: str | None = None
+    side: str = Field(..., pattern="^(buy|sell)$")
+    quantity: float = Field(..., gt=0)
+    price: float = Field(..., gt=0)
+    fee: float = Field(default=0.0, ge=0)
+    realized_pnl: float = 0.0
+    status: str = "filled"
+    source: str = "paper"
+    executed_at: datetime | None = None
+    metadata: dict = Field(default_factory=dict)
+
+
+class WarehouseTradeRead(BaseModel):
+    id: int
+    symbol: str
+    signal_id: int | None
+    prediction_id: int | None
+    order_id: int | None
+    exchange: str
+    external_trade_id: str | None
+    side: str
+    quantity: float
+    price: float
+    fee: float
+    realized_pnl: float
+    status: str
+    source: str
+    executed_at: datetime
+    metadata: dict
+    created_at: datetime
+
+
+class BacktestResultCreate(BaseModel):
+    symbol: str = "BTCUSDT"
+    strategy_id: int | None = None
+    model_id: int | None = None
+    run_id: int | None = None
+    timeframe: str = "15m"
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+    initial_balance: float = 10000.0
+    final_balance: float = 10000.0
+    total_return: float = 0.0
+    win_rate: float = 0.0
+    max_drawdown: float = 0.0
+    sharpe_ratio: float = 0.0
+    profit_factor: float = 0.0
+    trades_count: int = 0
+    metrics: dict = Field(default_factory=dict)
+    equity_curve: list[dict] = Field(default_factory=list)
+    parameters: dict = Field(default_factory=dict)
+
+
+class ModelMetricCreate(BaseModel):
+    model_id: int | None = None
+    symbol: str | None = None
+    model_name: str = ""
+    model_type: str = ""
+    timeframe: str = "15m"
+    dataset: str = "validation"
+    metric_name: str
+    metric_value: float
+    metrics: dict = Field(default_factory=dict)
+    training_window_start: datetime | None = None
+    training_window_end: datetime | None = None
+    evaluated_at: datetime | None = None
+
+
+class PortfolioSnapshotCreate(BaseModel):
+    account_id: int | None = None
+    captured_at: datetime | None = None
+    total_equity: float = 0.0
+    cash_balance: float = 0.0
+    margin_used: float = 0.0
+    total_exposure: float = 0.0
+    realized_pnl: float = 0.0
+    unrealized_pnl: float = 0.0
+    positions: list[dict] = Field(default_factory=list)
+    allocation: dict = Field(default_factory=dict)
+    metrics: dict = Field(default_factory=dict)
+    source: str = "portfolio"
+
+
+class PortfolioSnapshotRead(BaseModel):
+    id: int
+    account_id: int | None
+    captured_at: datetime
+    total_equity: float
+    cash_balance: float
+    margin_used: float
+    total_exposure: float
+    realized_pnl: float
+    unrealized_pnl: float
+    positions: list[dict]
+    allocation: dict
+    metrics: dict
+    source: str
+    created_at: datetime
+
+
+class MarketHistoryResponse(BaseModel):
+    symbol: str
+    timeframe: str
+    candles: list[WarehouseCandleRead] = Field(default_factory=list)
+    ticks: list[WarehouseTickRead] = Field(default_factory=list)
+    signals: list["SignalRead"] = Field(default_factory=list)
+    predictions: list[PredictionRead] = Field(default_factory=list)
+    trades: list[WarehouseTradeRead] = Field(default_factory=list)
+    portfolio_snapshots: list[PortfolioSnapshotRead] = Field(default_factory=list)
+
+
 class MarketDataSyncRequest(BaseModel):
     symbols: list[str] = Field(default_factory=lambda: ["BTCUSDT", "ETHUSDT"])
     timeframe: str = "15m"

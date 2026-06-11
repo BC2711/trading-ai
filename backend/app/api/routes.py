@@ -40,6 +40,7 @@ from app.schemas.trading import (
     MarketDataSyncResponse,
     MarketDataTaskResponse,
     MarketDataValidationResponse,
+    MarketHistoryResponse,
     MarketOrderBookRead,
     MarketTickRead,
     MarketTradeRead,
@@ -72,6 +73,7 @@ from app.schemas.trading import (
     UserRead,
     UserRolesUpdate,
     UserUpdate,
+    WarehouseCandleRead,
 )
 from app.schemas.portfolio import (
     EquityCurveResponse,
@@ -154,6 +156,7 @@ from app.services.market_data.jobs import run_market_data_refresh
 from app.services.market_data.repository import MarketDataRepository
 from app.services.market_data.service import MarketDataService
 from app.services.market_data.sync import sync_market_data
+from app.services.market_data.warehouse import MarketWarehouseService
 from app.services.market_data.websocket import market_data_websocket
 from app.services.ai.features import FeatureService
 from app.services.ai.advisor import analyze_signal, analysis_to_response, get_ai_analysis, list_ai_analyses
@@ -887,6 +890,72 @@ def get_candles(
     _user: User = Depends(require_permission("market-data:view")),
 ) -> list[MarketCandleRead]:
     return [market_candle_to_schema(candle) for candle in list_candles(db, symbol, timeframe, limit)]
+
+
+@router.get("/market/candles", response_model=list[WarehouseCandleRead], tags=["market-warehouse"])
+def get_market_warehouse_candles(
+    symbol: str = Query("BTCUSDT"),
+    timeframe: str = Query("15m"),
+    limit: int = Query(200, ge=1, le=1000),
+    start: datetime | None = Query(None),
+    end: datetime | None = Query(None),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("market-data:view")),
+) -> list[WarehouseCandleRead]:
+    return MarketWarehouseService(db).retrieve_market_history(
+        symbol,
+        timeframe=timeframe,
+        limit=limit,
+        start=start,
+        end=end,
+    ).candles
+
+
+@router.post("/market/candles/import", response_model=MarketDataImportResponse, tags=["market-warehouse"])
+def post_market_warehouse_candles_import(
+    payload: MarketDataImportRequest,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("market-data:import")),
+) -> MarketDataImportResponse:
+    try:
+        return MarketWarehouseService(db).import_candles(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/market/history/{symbol}", response_model=MarketHistoryResponse, tags=["market-warehouse"])
+def get_market_history(
+    symbol: str,
+    timeframe: str = Query("15m"),
+    limit: int = Query(500, ge=1, le=1000),
+    start: datetime | None = Query(None),
+    end: datetime | None = Query(None),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("market-data:view")),
+) -> MarketHistoryResponse:
+    return MarketWarehouseService(db).retrieve_market_history(
+        symbol,
+        timeframe=timeframe,
+        limit=limit,
+        start=start,
+        end=end,
+    )
+
+
+@router.post("/market/history/sync", response_model=MarketDataSyncResponse, tags=["market-warehouse"])
+def post_market_history_sync(
+    payload: MarketDataSyncRequest,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("market-data:sync")),
+) -> MarketDataSyncResponse:
+    try:
+        response = MarketWarehouseService(db).sync_historical_data(payload)
+    except MarketDataProviderError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    signals = generate_signals(db, timeframe=payload.timeframe) if payload.regenerate_signals else []
+    response.signals = [signal_to_schema(signal) for signal in signals]
+    return response
 
 
 @router.post("/market-data/import", response_model=MarketDataImportResponse, tags=["market-data"])

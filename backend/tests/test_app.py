@@ -230,6 +230,66 @@ def test_market_data_import_stores_spread_and_detects_missing_candles() -> None:
     assert validation_response.json()["missing_candles"][0]["expected_at"].startswith("2026-06-09T10:01:00")
 
 
+def test_market_warehouse_import_and_history_endpoints() -> None:
+    with TestClient(app) as client:
+        headers = auth_headers(client)
+        import_response = client.post(
+            "/api/market/candles/import",
+            headers=headers,
+            json={
+                "market": "crypto",
+                "exchange": "binance",
+                "timeframe": "5m",
+                "candles": [
+                    {
+                        "symbol": "SOLUSDT",
+                        "timeframe": "5m",
+                        "opened_at": "2026-06-09T12:00:00Z",
+                        "open": 150.0,
+                        "high": 153.0,
+                        "low": 149.5,
+                        "close": 152.0,
+                        "volume": 25000,
+                        "spread": 0.01,
+                    }
+                ],
+                "ticks": [
+                    {
+                        "symbol": "SOLUSDT",
+                        "exchange": "binance",
+                        "tick_time": "2026-06-09T12:00:30Z",
+                        "bid": 151.99,
+                        "ask": 152.01,
+                        "price": 152.0,
+                        "volume": 80,
+                        "source": "import",
+                    }
+                ],
+            },
+        )
+        candles_response = client.get(
+            "/api/market/candles",
+            headers=headers,
+            params={"symbol": "SOLUSDT", "timeframe": "5m", "limit": 10},
+        )
+        history_response = client.get(
+            "/api/market/history/SOLUSDT",
+            headers=headers,
+            params={"timeframe": "5m", "limit": 10},
+        )
+
+    assert import_response.status_code == 200, import_response.text
+    assert import_response.json()["candle_inserted"] == 1
+    assert candles_response.status_code == 200
+    assert candles_response.json()[0]["source"] == "import"
+    assert history_response.status_code == 200
+    history = history_response.json()
+    assert history["symbol"] == "SOLUSDT"
+    assert history["candles"][0]["close"] == 152.0
+    assert history["ticks"][0]["spread"] == 0.02
+    assert {"signals", "predictions", "trades", "portfolio_snapshots"}.issubset(history)
+
+
 def test_market_data_stream_ingests_and_lists_ticks() -> None:
     with TestClient(app) as client:
         headers = auth_headers(client)

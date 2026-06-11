@@ -4,6 +4,8 @@ from app.models.trading import (
     ApiCredential,
     AuditEvent,
     BacktestRun,
+    BacktestResult,
+    Candle,
     FeatureCalculationLog,
     FeatureSet,
     MarketCandle,
@@ -19,6 +21,8 @@ from app.models.trading import (
     PaperTradeLedger,
     RiskSetting,
     Permission,
+    PortfolioSnapshot,
+    Prediction,
     Signal,
     Strategy,
     StrategyAction,
@@ -31,6 +35,9 @@ from app.models.trading import (
     User,
     UserRole,
     WalkForwardRun,
+    ModelMetric,
+    Tick,
+    WarehouseTrade,
 )
 
 __all__ = [
@@ -39,6 +46,8 @@ __all__ = [
     "ApiCredential",
     "AuditEvent",
     "BacktestRun",
+    "BacktestResult",
+    "Candle",
     "FeatureCalculationLog",
     "FeatureSet",
     "MarketCandle",
@@ -54,6 +63,8 @@ __all__ = [
     "PaperTradeLedger",
     "RiskSetting",
     "Permission",
+    "PortfolioSnapshot",
+    "Prediction",
     "Signal",
     "Strategy",
     "StrategyAction",
@@ -66,4 +77,7 @@ __all__ = [
     "User",
     "UserRole",
     "WalkForwardRun",
+    "ModelMetric",
+    "Tick",
+    "WarehouseTrade",
 ]
