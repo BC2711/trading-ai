@@ -61,6 +61,9 @@ const EconomicCalendarPage = lazy(() =>
 const NotificationSettingsPage = lazy(() =>
   import("./pages/NotificationSettingsPage").then((module) => ({ default: module.NotificationSettingsPage }))
 );
+const RolesPermissionsPage = lazy(() =>
+  import("./pages/RolesPermissionsPage").then((module) => ({ default: module.RolesPermissionsPage }))
+);
 const RiskAnalyticsPage = lazy(() =>
   import("./pages/RiskAnalyticsPage").then((module) => ({ default: module.RiskAnalyticsPage }))
 );
@@ -108,6 +111,7 @@ function PageFallback() {
 
 function renderRoute(route: string) {
   if (route.startsWith("users")) return <UsersPage />;
+  if (route.startsWith("administration/roles-permissions") || route.startsWith("roles-permissions")) return <RolesPermissionsPage />;
   if (route.startsWith("api-keys")) return <ApiKeysPage />;
   if (route.startsWith("strategies/builder")) return <StrategyBuilderPage />;
   if (route.startsWith("strategies")) return <StrategiesPage />;

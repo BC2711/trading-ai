@@ -48,10 +48,14 @@ from app.schemas.trading import (
     PaperOrderRead,
     PaperOrderRequest,
     PaperPositionRead,
+    PermissionRead,
     NavigationItemRead,
     RefreshTokenRequest,
     RiskSettingRead,
     RiskSettingUpdate,
+    RoleCreate,
+    RoleRead,
+    RoleUpdate,
     SignalGenerateRequest,
     SignalRead,
     StrategyCreate,
@@ -66,6 +70,7 @@ from app.schemas.trading import (
     UserCreate,
     UserLogin,
     UserRead,
+    UserRolesUpdate,
     UserUpdate,
 )
 from app.schemas.portfolio import (
@@ -129,7 +134,7 @@ from app.schemas.scanner import ScannerRead, ScannerRunRequest
 from app.schemas.sentiment import SentimentAnalyzeRequest, SentimentResponse
 from app.core.config import settings
 from app.core.security import create_access_token, create_refresh_token, decode_jwt, decode_refresh_token
-from app.db.auth import get_current_user as require_current_user, require_permission, require_role
+from app.db.auth import get_current_user as require_current_user, require_permission
 from app.services.indicators.technical import moving_average_snapshot
 from app.models import User
 from app.services.repository import (
@@ -158,19 +163,26 @@ from app.services.ai.training import compare_models, deploy_model, disable_model
 from app.services.ai.inference import PredictionService
 from app.services.ai.registry import ModelRegistryService
 from app.services.admin import (
+    assign_roles_to_user,
     authenticate_user,
     create_credential,
     create_notification,
+    create_role,
     delete_credential,
+    delete_role as delete_rbac_role,
     delete_user,
     list_credentials,
     list_notifications,
+    list_permissions,
+    list_roles,
     list_system_logs,
     list_users,
     mark_notification_read,
-    permissions_for_role,
+    permissions_for_user,
     register_user,
+    roles_for_user,
     update_credential,
+    update_role,
     update_user,
 )
 from app.services.audit import audit_event_to_schema, list_audit_events
@@ -260,6 +272,12 @@ NAVIGATION_ITEMS = [
         "permission": "users:manage",
         "children": [
             {"label": "Users", "href": "#/users", "icon": "users", "permission": "users:manage"},
+            {
+                "label": "Roles & Permissions",
+                "href": "#/administration/roles-permissions",
+                "icon": "shield-check",
+                "permission": "manage_users",
+            },
             {"label": "API Keys", "href": "#/api-keys", "icon": "key", "permission": "api-credentials:manage"},
             {
                 "label": "Notification Settings",
@@ -519,18 +537,18 @@ def post_refresh_token(payload: RefreshTokenRequest, db: Session = Depends(get_d
 
 
 @router.get("/me", response_model=CurrentUserRead, tags=["auth"])
-def get_current_user(user: User = Depends(require_current_user)) -> CurrentUserRead:
+def get_current_user(db: Session = Depends(get_db), user: User = Depends(require_current_user)) -> CurrentUserRead:
     return CurrentUserRead(
         id=user.id,
         name=user.full_name,
         role=user.role,
-        permissions=permissions_for_role(user.role),
+        permissions=permissions_for_user(db, user),
     )
 
 
 @router.get("/navigation", response_model=list[NavigationItemRead], tags=["auth"])
-def get_navigation(user: User = Depends(require_current_user)) -> list[NavigationItemRead]:
-    permissions = set(permissions_for_role(user.role))
+def get_navigation(db: Session = Depends(get_db), user: User = Depends(require_current_user)) -> list[NavigationItemRead]:
+    permissions = set(permissions_for_user(db, user))
     items = []
     for item in NAVIGATION_ITEMS:
         if item["permission"] not in permissions:
@@ -543,7 +561,7 @@ def get_navigation(user: User = Depends(require_current_user)) -> list[Navigatio
 @router.get("/users", response_model=list[UserRead], tags=["users"])
 def get_users(
     db: Session = Depends(get_db),
-    _user: User = Depends(require_role("admin")),
+    _user: User = Depends(require_permission("manage_users")),
 ) -> list[UserRead]:
     return [UserRead.model_validate(user) for user in list_users(db)]
 
@@ -553,7 +571,7 @@ def patch_user(
     user_id: int,
     payload: UserUpdate,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_role("admin")),
+    _user: User = Depends(require_permission("manage_users")),
 ) -> UserRead:
     user = update_user(db, user_id, payload)
     if user is None:
@@ -565,17 +583,103 @@ def patch_user(
 def delete_user_endpoint(
     user_id: int,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_role("admin")),
+    _user: User = Depends(require_permission("manage_users")),
 ) -> dict[str, bool]:
     if not delete_user(db, user_id):
         raise HTTPException(status_code=404, detail="User not found")
     return {"deleted": True}
 
 
+@router.get("/roles", response_model=list[RoleRead], tags=["roles"])
+def get_roles(
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("manage_users")),
+) -> list[RoleRead]:
+    return [role_to_schema(role) for role in list_roles(db)]
+
+
+@router.post("/roles", response_model=RoleRead, tags=["roles"])
+def post_role(
+    payload: RoleCreate,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("manage_users")),
+) -> RoleRead:
+    try:
+        return role_to_schema(create_role(db, payload))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.put("/roles/{role_id}", response_model=RoleRead, tags=["roles"])
+def put_role(
+    role_id: int,
+    payload: RoleUpdate,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("manage_users")),
+) -> RoleRead:
+    try:
+        role = update_role(db, role_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if role is None:
+        raise HTTPException(status_code=404, detail="Role not found")
+    return role_to_schema(role)
+
+
+@router.delete("/roles/{role_id}", tags=["roles"])
+def delete_role_endpoint(
+    role_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("manage_users")),
+) -> dict[str, bool]:
+    try:
+        if not delete_rbac_role(db, role_id):
+            raise HTTPException(status_code=404, detail="Role not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"deleted": True}
+
+
+@router.get("/permissions", response_model=list[PermissionRead], tags=["roles"])
+def get_permissions(
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("manage_users")),
+) -> list[PermissionRead]:
+    return [PermissionRead.model_validate(permission) for permission in list_permissions(db)]
+
+
+@router.post("/users/{user_id}/roles", response_model=UserRead, tags=["roles"])
+def post_user_roles(
+    user_id: int,
+    payload: UserRolesUpdate,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("manage_users")),
+) -> UserRead:
+    try:
+        user = assign_roles_to_user(db, user_id, payload.role_ids)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return UserRead.model_validate(user)
+
+
+@router.get("/users/{user_id}/permissions", response_model=list[str], tags=["roles"])
+def get_user_permissions(
+    user_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("manage_users")),
+) -> list[str]:
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return permissions_for_user(db, user)
+
+
 @router.get("/api-credentials", response_model=list[ApiCredentialRead], tags=["api-credentials"])
 def get_api_credentials(
     db: Session = Depends(get_db),
-    _user: User = Depends(require_role("admin")),
+    _user: User = Depends(require_permission("manage_api_keys")),
 ) -> list[ApiCredentialRead]:
     return [ApiCredentialRead.model_validate(credential) for credential in list_credentials(db)]
 
@@ -584,7 +688,7 @@ def get_api_credentials(
 def post_api_credential(
     payload: ApiCredentialCreate,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_role("admin")),
+    _user: User = Depends(require_permission("manage_api_keys")),
 ) -> ApiCredentialRead:
     if payload.mode == "live":
         risk = ensure_default_risk_settings(db)
@@ -598,7 +702,7 @@ def patch_api_credential(
     credential_id: int,
     payload: ApiCredentialUpdate,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_role("admin")),
+    _user: User = Depends(require_permission("manage_api_keys")),
 ) -> ApiCredentialRead:
     credential = update_credential(db, credential_id, payload)
     if credential is None:
@@ -610,7 +714,7 @@ def patch_api_credential(
 def delete_api_credential(
     credential_id: int,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_role("admin")),
+    _user: User = Depends(require_permission("manage_api_keys")),
 ) -> dict[str, bool]:
     if not delete_credential(db, credential_id):
         raise HTTPException(status_code=404, detail="API credential not found")
@@ -974,7 +1078,7 @@ def get_strategies(
 def post_strategy(
     payload: StrategyCreate,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_role("admin")),
+    _user: User = Depends(require_permission("manage_strategies")),
 ) -> StrategyRead:
     return StrategyRead.model_validate(create_strategy(db, payload))
 
@@ -1058,7 +1162,7 @@ def post_strategy_evaluate(
 def post_enable_strategy(
     strategy_id: int,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_role("admin")),
+    _user: User = Depends(require_permission("manage_strategies")),
 ) -> StrategyRead:
     strategy = update_strategy(db, strategy_id, StrategyUpdate(enabled=True, status="active"))
     if strategy is None:
@@ -1070,7 +1174,7 @@ def post_enable_strategy(
 def post_disable_strategy(
     strategy_id: int,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_role("admin")),
+    _user: User = Depends(require_permission("manage_strategies")),
 ) -> StrategyRead:
     strategy = update_strategy(db, strategy_id, StrategyUpdate(enabled=False, status="paused"))
     if strategy is None:
@@ -1082,7 +1186,7 @@ def post_disable_strategy(
 def delete_strategy_endpoint(
     strategy_id: int,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_role("admin")),
+    _user: User = Depends(require_permission("manage_strategies")),
 ) -> dict[str, bool]:
     if not delete_strategy(db, strategy_id):
         raise HTTPException(status_code=404, detail="Strategy not found")
@@ -1370,7 +1474,7 @@ def post_ai_train(
 def post_ai_model_train(
     payload: AIModelTrainRequest,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_role("admin")),
+    _user: User = Depends(require_permission("train_models")),
 ) -> AIModelRead:
     try:
         return AIModelRead.model_validate(
@@ -1406,7 +1510,7 @@ def post_ai_model_retrain(
     model_id: int,
     payload: AIModelRetrainRequest | None = None,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_role("admin")),
+    _user: User = Depends(require_permission("train_models")),
 ) -> AIModelRead:
     payload = payload or AIModelRetrainRequest()
     try:
@@ -1421,7 +1525,7 @@ def post_ai_model_retrain(
 def post_ai_model_deploy(
     model_id: int,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_role("admin")),
+    _user: User = Depends(require_permission("train_models")),
 ) -> AIModelRead:
     try:
         return AIModelRead.model_validate(deploy_model(db, model_id))
@@ -1445,7 +1549,7 @@ def post_ai_model_activate(
 def post_ai_model_disable(
     model_id: int,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_role("admin")),
+    _user: User = Depends(require_permission("train_models")),
 ) -> AIModelRead:
     try:
         return AIModelRead.model_validate(disable_model(db, model_id))
@@ -1836,7 +1940,7 @@ def get_notifications(
 def post_notification(
     payload: NotificationCreate,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_role("admin")),
+    _user: User = Depends(require_permission("view_logs")),
 ) -> NotificationRead:
     return NotificationRead.model_validate(create_notification(db, payload))
 
@@ -1892,6 +1996,23 @@ def indicator_preview(
     _user: User = Depends(require_permission("market-data:view")),
 ) -> dict[str, float]:
     return moving_average_snapshot([101.2, 102.4, 101.9, 103.1, 104.8, 104.2])
+
+
+def role_to_schema(role) -> RoleRead:
+    permissions = [
+        PermissionRead.model_validate(assignment.permission_ref)
+        for assignment in sorted(role.permission_assignments, key=lambda item: item.permission_ref.name)
+    ]
+    return RoleRead(
+        id=role.id,
+        name=role.name,
+        slug=role.slug,
+        description=role.description,
+        is_system=role.is_system,
+        permissions=permissions,
+        created_at=role.created_at,
+        updated_at=role.updated_at,
+    )
 
 
 def signal_to_schema(signal: Signal) -> SignalRead:

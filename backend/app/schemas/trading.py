@@ -474,7 +474,7 @@ class UserCreate(BaseModel):
     email: str = Field(..., min_length=5, max_length=255)
     full_name: str = Field(..., min_length=2, max_length=160)
     password: str = Field(..., min_length=8, max_length=128)
-    role: str = Field(default="trader", pattern="^(admin|trader)$")
+    role: str = Field(default="trader", max_length=80)
 
 
 class UserLogin(BaseModel):
@@ -505,8 +505,44 @@ class UserRead(BaseModel):
 
 class UserUpdate(BaseModel):
     full_name: str | None = Field(default=None, min_length=2, max_length=160)
-    role: str | None = Field(default=None, pattern="^(admin|trader)$")
+    role: str | None = Field(default=None, max_length=80)
     is_active: bool | None = None
+
+
+class PermissionRead(BaseModel):
+    id: int
+    name: str
+    description: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class RoleCreate(BaseModel):
+    name: str = Field(..., min_length=2, max_length=80)
+    description: str = Field(default="", max_length=500)
+    permission_ids: list[int] = Field(default_factory=list)
+
+
+class RoleUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=80)
+    description: str | None = Field(default=None, max_length=500)
+    permission_ids: list[int] | None = None
+
+
+class RoleRead(BaseModel):
+    id: int
+    name: str
+    slug: str
+    description: str
+    is_system: bool
+    permissions: list[PermissionRead] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
+class UserRolesUpdate(BaseModel):
+    role_ids: list[int] = Field(default_factory=list)
 
 
 class ApiCredentialCreate(BaseModel):

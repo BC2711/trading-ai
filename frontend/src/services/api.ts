@@ -27,7 +27,7 @@ export type RegisterRequest = {
   email: string;
   full_name: string;
   password: string;
-  role?: "admin" | "trader";
+  role?: string;
 };
 
 export type TokenResponse = {
@@ -453,7 +453,7 @@ export type UserResource = {
   id: number;
   email: string;
   full_name: string;
-  role: "admin" | "trader";
+  role: string;
   is_active: boolean;
   created_at: string;
 };
@@ -545,10 +545,34 @@ export type SystemLogResource = {
 };
 
 export type CurrentUser = {
-  id: string;
+  id: number;
   name: string;
   role: string;
   permissions: string[];
+};
+
+export type PermissionResource = {
+  id: number;
+  name: string;
+  description: string;
+  created_at: string;
+};
+
+export type RoleResource = {
+  id: number;
+  name: string;
+  slug: string;
+  description: string;
+  is_system: boolean;
+  permissions: PermissionResource[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type RoleRequest = {
+  name: string;
+  description?: string;
+  permission_ids?: number[];
 };
 
 export type NavigationChild = {
@@ -580,6 +604,41 @@ export async function fetchNavigation(): Promise<NavigationItem[]> {
 
 export async function fetchUsers(): Promise<UserResource[]> {
   const response = await apiClient.get<UserResource[]>("/api/users");
+  return response.data;
+}
+
+export async function fetchRoles(): Promise<RoleResource[]> {
+  const response = await apiClient.get<RoleResource[]>("/api/roles");
+  return response.data;
+}
+
+export async function createRole(payload: RoleRequest): Promise<RoleResource> {
+  const response = await apiClient.post<RoleResource>("/api/roles", payload);
+  return response.data;
+}
+
+export async function updateRole(id: number, payload: Partial<RoleRequest>): Promise<RoleResource> {
+  const response = await apiClient.put<RoleResource>(`/api/roles/${id}`, payload);
+  return response.data;
+}
+
+export async function deleteRole(id: number): Promise<{ deleted: boolean }> {
+  const response = await apiClient.delete<{ deleted: boolean }>(`/api/roles/${id}`);
+  return response.data;
+}
+
+export async function fetchPermissions(): Promise<PermissionResource[]> {
+  const response = await apiClient.get<PermissionResource[]>("/api/permissions");
+  return response.data;
+}
+
+export async function assignRolesToUser(userId: number, roleIds: number[]): Promise<UserResource> {
+  const response = await apiClient.post<UserResource>(`/api/users/${userId}/roles`, { role_ids: roleIds });
+  return response.data;
+}
+
+export async function fetchUserPermissions(userId: number): Promise<string[]> {
+  const response = await apiClient.get<string[]>(`/api/users/${userId}/permissions`);
   return response.data;
 }
 

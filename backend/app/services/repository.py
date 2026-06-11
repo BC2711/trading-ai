@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.models import MarketCandle, RiskSetting, Strategy, Symbol
 from app.schemas.trading import RiskSettingUpdate, StrategyCreate, StrategyUpdate, SymbolCreate
+from app.services.admin import ensure_rbac_defaults
 from app.services.audit import record_event
 
 
@@ -199,6 +200,8 @@ def update_risk_settings(db: Session, risk_setting_id: int, payload: RiskSetting
 
 
 def seed_defaults(db: Session) -> None:
+    ensure_rbac_defaults(db)
+
     for payload in DEFAULT_SYMBOLS:
         create_symbol(db, payload)
 

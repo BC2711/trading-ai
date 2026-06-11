@@ -90,6 +90,7 @@ const fallbackNavItems: NavItem[] = [
     permission: "users:manage",
     children: [
       { label: "Users", icon: Users, href: "#/users", permission: "users:manage" },
+      { label: "Roles & Permissions", icon: ShieldCheck, href: "#/administration/roles-permissions", permission: "manage_users" },
       { label: "API Keys", icon: KeyRound, href: "#/api-keys", permission: "api-credentials:manage" },
       { label: "Notification Settings", icon: Bell, href: "#/administration/notification-settings", permission: "notifications:manage" }
     ]
