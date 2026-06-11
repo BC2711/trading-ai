@@ -467,6 +467,12 @@ class AuditEventRead(BaseModel):
     severity: str
     message: str
     metadata: dict
+    action: str
+    user: str | None = None
+    module: str
+    ip_address: str | None = None
+    status: str
+    details: dict = Field(default_factory=dict)
     created_at: datetime
 
 

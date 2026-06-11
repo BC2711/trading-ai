@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 
 from app.db.deps import get_db
@@ -185,7 +185,7 @@ from app.services.admin import (
     update_role,
     update_user,
 )
-from app.services.audit import audit_event_to_schema, list_audit_events
+from app.services.audit import audit_event_to_schema, list_audit_events, record_compliance_event
 from app.services.backtesting.engine import get_backtest_run, list_backtest_runs, run_backtest
 from app.services.backtesting.walk_forward import get_walk_forward_run, run_walk_forward
 from app.services.calendar import create_event as create_calendar_event, high_impact_events, list_events as list_calendar_events
@@ -238,6 +238,45 @@ from app.workers.tasks import refresh_market_data
 
 router = APIRouter()
 
+
+def client_ip(request: Request) -> str | None:
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        return forwarded_for.split(",", 1)[0].strip()
+    return request.client.host if request.client else None
+
+
+def audit_route_event(
+    db: Session,
+    request: Request,
+    *,
+    action: str,
+    module: str,
+    status: str,
+    message: str,
+    user: User | None = None,
+    entity_type: str | None = None,
+    entity_id: int | None = None,
+    severity: str | None = None,
+    details: dict | None = None,
+) -> None:
+    record_compliance_event(
+        db,
+        action=action,
+        module=module,
+        status=status,
+        message=message,
+        user_id=user.id if user else None,
+        user_email=user.email if user else None,
+        user_name=user.full_name if user else None,
+        ip_address=client_ip(request),
+        entity_type=entity_type,
+        entity_id=entity_id,
+        severity=severity,
+        details=details,
+        commit=True,
+    )
+
 NAVIGATION_ITEMS = [
     {
         "label": "Overview",
@@ -277,6 +316,12 @@ NAVIGATION_ITEMS = [
                 "href": "#/administration/roles-permissions",
                 "icon": "shield-check",
                 "permission": "manage_users",
+            },
+            {
+                "label": "Audit Logs",
+                "href": "#/administration/audit-logs",
+                "icon": "activity",
+                "permission": "audit:view",
             },
             {"label": "API Keys", "href": "#/api-keys", "icon": "key", "permission": "api-credentials:manage"},
             {
@@ -509,15 +554,53 @@ def post_register(payload: UserCreate, db: Session = Depends(get_db)) -> UserRea
 
 
 @router.post("/auth/login", response_model=TokenResponse, tags=["auth"])
-def post_login(payload: UserLogin, db: Session = Depends(get_db)) -> TokenResponse:
+def post_login(payload: UserLogin, request: Request, db: Session = Depends(get_db)) -> TokenResponse:
     user = authenticate_user(db, payload.email, payload.password)
     if user is None:
+        audit_route_event(
+            db,
+            request,
+            action="failed_login",
+            module="users",
+            status="failed",
+            message=f"Failed login attempt for {payload.email.lower()}.",
+            severity="warning",
+            details={"email": payload.email.lower()},
+        )
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    audit_route_event(
+        db,
+        request,
+        action="login",
+        module="users",
+        status="success",
+        message=f"{user.email} logged in.",
+        user=user,
+    )
     return TokenResponse(
         access_token=create_access_token(str(user.id), user.role),
         refresh_token=create_refresh_token(str(user.id), user.role),
         token_type="bearer",
     )
+
+
+@router.post("/auth/logout", tags=["auth"])
+def post_logout(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_current_user),
+) -> dict[str, bool]:
+    audit_route_event(
+        db,
+        request,
+        action="logout",
+        module="users",
+        status="success",
+        message=f"{user.email} logged out.",
+        user=user,
+    )
+    return {"logged_out": True}
+
 
 @router.post("/auth/refresh", response_model=TokenResponse, tags=["auth"])
 def post_refresh_token(payload: RefreshTokenRequest, db: Session = Depends(get_db)) -> TokenResponse:
@@ -652,8 +735,9 @@ def get_permissions(
 def post_user_roles(
     user_id: int,
     payload: UserRolesUpdate,
+    request: Request,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_permission("manage_users")),
+    actor: User = Depends(require_permission("manage_users")),
 ) -> UserRead:
     try:
         user = assign_roles_to_user(db, user_id, payload.role_ids)
@@ -661,6 +745,19 @@ def post_user_roles(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
+    assigned_roles = [role.name for role in roles_for_user(db, user.id)]
+    audit_route_event(
+        db,
+        request,
+        action="user_role_change",
+        module="users",
+        status="success",
+        message=f"Updated roles for {user.email}.",
+        user=actor,
+        entity_type="user",
+        entity_id=user.id,
+        details={"target_user": user.email, "role_ids": payload.role_ids, "roles": assigned_roles},
+    )
     return UserRead.model_validate(user)
 
 
@@ -687,14 +784,39 @@ def get_api_credentials(
 @router.post("/api-credentials", response_model=ApiCredentialRead, tags=["api-credentials"])
 def post_api_credential(
     payload: ApiCredentialCreate,
+    request: Request,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_permission("manage_api_keys")),
+    user: User = Depends(require_permission("manage_api_keys")),
 ) -> ApiCredentialRead:
     if payload.mode == "live":
         risk = ensure_default_risk_settings(db)
         if not risk.live_trading_enabled or risk.emergency_stop:
+            audit_route_event(
+                db,
+                request,
+                action="api_key_creation",
+                module="administration",
+                status="rejected",
+                message=f"Rejected live API key creation for {payload.exchange.lower()}.",
+                user=user,
+                severity="warning",
+                details={"exchange": payload.exchange.lower(), "mode": payload.mode},
+            )
             raise HTTPException(status_code=400, detail="Live credentials require live trading enabled and emergency stop disabled")
-    return ApiCredentialRead.model_validate(create_credential(db, payload))
+    credential = create_credential(db, payload)
+    audit_route_event(
+        db,
+        request,
+        action="api_key_creation",
+        module="administration",
+        status="success",
+        message=f"Created API key for {credential.exchange}.",
+        user=user,
+        entity_type="api_credential",
+        entity_id=credential.id,
+        details={"exchange": credential.exchange, "mode": credential.mode},
+    )
+    return ApiCredentialRead.model_validate(credential)
 
 
 @router.patch("/api-credentials/{credential_id}", response_model=ApiCredentialRead, tags=["api-credentials"])
@@ -713,11 +835,23 @@ def patch_api_credential(
 @router.delete("/api-credentials/{credential_id}", tags=["api-credentials"])
 def delete_api_credential(
     credential_id: int,
+    request: Request,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_permission("manage_api_keys")),
+    user: User = Depends(require_permission("manage_api_keys")),
 ) -> dict[str, bool]:
     if not delete_credential(db, credential_id):
         raise HTTPException(status_code=404, detail="API credential not found")
+    audit_route_event(
+        db,
+        request,
+        action="api_key_deletion",
+        module="administration",
+        status="success",
+        message=f"Deleted API credential {credential_id}.",
+        user=user,
+        entity_type="api_credential",
+        entity_id=credential_id,
+    )
     return {"deleted": True}
 
 
@@ -1077,10 +1211,24 @@ def get_strategies(
 @router.post("/strategies", response_model=StrategyRead, tags=["strategies"])
 def post_strategy(
     payload: StrategyCreate,
+    request: Request,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_permission("manage_strategies")),
+    user: User = Depends(require_permission("manage_strategies")),
 ) -> StrategyRead:
-    return StrategyRead.model_validate(create_strategy(db, payload))
+    strategy = create_strategy(db, payload)
+    audit_route_event(
+        db,
+        request,
+        action="strategy_change",
+        module="strategy",
+        status="success",
+        message=f"Created strategy {strategy.name}.",
+        user=user,
+        entity_type="strategy",
+        entity_id=strategy.id,
+        details=payload.model_dump(),
+    )
+    return StrategyRead.model_validate(strategy)
 
 
 @router.post("/strategies/builder", response_model=StrategyBuilderRead, tags=["strategies"])
@@ -1107,13 +1255,26 @@ def get_strategy_builders(
 def patch_strategy(
     strategy_id: int,
     payload: StrategyUpdate,
+    request: Request,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_permission("strategies:update")),
+    user: User = Depends(require_permission("strategies:update")),
 ) -> StrategyRead:
     strategy = update_strategy(db, strategy_id, payload)
     if strategy is None:
         raise HTTPException(status_code=404, detail="Strategy not found")
 
+    audit_route_event(
+        db,
+        request,
+        action="strategy_change",
+        module="strategy",
+        status="success",
+        message=f"Updated strategy {strategy.name}.",
+        user=user,
+        entity_type="strategy",
+        entity_id=strategy.id,
+        details=payload.model_dump(exclude_unset=True),
+    )
     return StrategyRead.model_validate(strategy)
 
 
@@ -1133,12 +1294,25 @@ def get_strategy_rules_endpoint(
 def put_strategy_rules_endpoint(
     strategy_id: int,
     payload: StrategyRulesUpdate,
+    request: Request,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_permission("strategies:update")),
+    user: User = Depends(require_permission("strategies:update")),
 ) -> list[StrategyRuleRead]:
     rules = update_strategy_rules(db, strategy_id, payload)
     if rules is None:
         raise HTTPException(status_code=404, detail="Strategy not found")
+    audit_route_event(
+        db,
+        request,
+        action="strategy_change",
+        module="strategy",
+        status="success",
+        message=f"Updated rules for strategy {strategy_id}.",
+        user=user,
+        entity_type="strategy",
+        entity_id=strategy_id,
+        details={"rules": len(payload.rules)},
+    )
     return rules
 
 
@@ -1161,35 +1335,73 @@ def post_strategy_evaluate(
 @router.post("/strategies/{strategy_id}/enable", response_model=StrategyRead, tags=["strategies"])
 def post_enable_strategy(
     strategy_id: int,
+    request: Request,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_permission("manage_strategies")),
+    user: User = Depends(require_permission("manage_strategies")),
 ) -> StrategyRead:
     strategy = update_strategy(db, strategy_id, StrategyUpdate(enabled=True, status="active"))
     if strategy is None:
         raise HTTPException(status_code=404, detail="Strategy not found")
+    audit_route_event(
+        db,
+        request,
+        action="strategy_change",
+        module="strategy",
+        status="success",
+        message=f"Enabled strategy {strategy.name}.",
+        user=user,
+        entity_type="strategy",
+        entity_id=strategy.id,
+        details={"enabled": True, "status": "active"},
+    )
     return StrategyRead.model_validate(strategy)
 
 
 @router.post("/strategies/{strategy_id}/disable", response_model=StrategyRead, tags=["strategies"])
 def post_disable_strategy(
     strategy_id: int,
+    request: Request,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_permission("manage_strategies")),
+    user: User = Depends(require_permission("manage_strategies")),
 ) -> StrategyRead:
     strategy = update_strategy(db, strategy_id, StrategyUpdate(enabled=False, status="paused"))
     if strategy is None:
         raise HTTPException(status_code=404, detail="Strategy not found")
+    audit_route_event(
+        db,
+        request,
+        action="strategy_change",
+        module="strategy",
+        status="success",
+        message=f"Disabled strategy {strategy.name}.",
+        user=user,
+        entity_type="strategy",
+        entity_id=strategy.id,
+        details={"enabled": False, "status": "paused"},
+    )
     return StrategyRead.model_validate(strategy)
 
 
 @router.delete("/strategies/{strategy_id}", tags=["strategies"])
 def delete_strategy_endpoint(
     strategy_id: int,
+    request: Request,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_permission("manage_strategies")),
+    user: User = Depends(require_permission("manage_strategies")),
 ) -> dict[str, bool]:
     if not delete_strategy(db, strategy_id):
         raise HTTPException(status_code=404, detail="Strategy not found")
+    audit_route_event(
+        db,
+        request,
+        action="strategy_change",
+        module="strategy",
+        status="success",
+        message=f"Deleted strategy {strategy_id}.",
+        user=user,
+        entity_type="strategy",
+        entity_id=strategy_id,
+    )
     return {"deleted": True}
 
 
@@ -1205,13 +1417,26 @@ def get_risk_settings(
 def patch_risk_settings(
     risk_setting_id: int,
     payload: RiskSettingUpdate,
+    request: Request,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_permission("risk-settings:update")),
+    user: User = Depends(require_permission("risk-settings:update")),
 ) -> RiskSettingRead:
     settings = update_risk_settings(db, risk_setting_id, payload)
     if settings is None:
         raise HTTPException(status_code=404, detail="Risk settings not found")
 
+    audit_route_event(
+        db,
+        request,
+        action="risk_setting_change",
+        module="risk",
+        status="success",
+        message=f"Updated risk settings {settings.name}.",
+        user=user,
+        entity_type="risk_setting",
+        entity_id=settings.id,
+        details=payload.model_dump(exclude_unset=True),
+    )
     return RiskSettingRead.model_validate(settings)
 
 
@@ -1252,26 +1477,62 @@ def get_risk_limits_endpoint(
 @router.put("/risk/limits", response_model=RiskLimitsRead, tags=["risk"])
 def put_risk_limits(
     payload: RiskLimitsUpdate,
+    request: Request,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_permission("risk-settings:update")),
+    user: User = Depends(require_permission("risk-settings:update")),
 ) -> RiskLimitsRead:
-    return update_risk_limits(db, payload)
+    limits = update_risk_limits(db, payload)
+    audit_route_event(
+        db,
+        request,
+        action="risk_setting_change",
+        module="risk",
+        status="success",
+        message="Updated risk limits.",
+        user=user,
+        details=payload.model_dump(exclude_unset=True),
+    )
+    return limits
 
 
 @router.post("/risk/circuit-breaker/enable", response_model=RiskLimitsRead, tags=["risk"])
 def post_enable_circuit_breaker(
+    request: Request,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_permission("risk-settings:update")),
+    user: User = Depends(require_permission("risk-settings:update")),
 ) -> RiskLimitsRead:
-    return set_circuit_breaker(db, True)
+    limits = set_circuit_breaker(db, True)
+    audit_route_event(
+        db,
+        request,
+        action="risk_setting_change",
+        module="risk",
+        status="success",
+        message="Enabled risk circuit breaker.",
+        user=user,
+        details={"emergency_stop": True},
+    )
+    return limits
 
 
 @router.post("/risk/circuit-breaker/disable", response_model=RiskLimitsRead, tags=["risk"])
 def post_disable_circuit_breaker(
+    request: Request,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_permission("risk-settings:update")),
+    user: User = Depends(require_permission("risk-settings:update")),
 ) -> RiskLimitsRead:
-    return set_circuit_breaker(db, False)
+    limits = set_circuit_breaker(db, False)
+    audit_route_event(
+        db,
+        request,
+        action="risk_setting_change",
+        module="risk",
+        status="success",
+        message="Disabled risk circuit breaker.",
+        user=user,
+        details={"emergency_stop": False},
+    )
+    return limits
 
 
 @router.post("/risk/monte-carlo", response_model=MonteCarloResponse, tags=["risk"])
@@ -1450,46 +1711,92 @@ def get_ai_models(
 @router.post("/ai/train", response_model=AIModelRead, tags=["ai"])
 def post_ai_train(
     payload: AIModelTrainRequest,
+    request: Request,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_permission("ai-models:manage")),
+    user: User = Depends(require_permission("ai-models:manage")),
 ) -> AIModelRead:
     try:
-        return AIModelRead.model_validate(
-            train_model(
-                db,
-                name=payload.name,
-                symbol=payload.symbol,
-                timeframe=payload.timeframe,
-                lookback=payload.lookback,
-                model_type=payload.model_type,
-                training_params=payload.training_params,
-                selected_features=payload.selected_features or None,
-            )
+        model = train_model(
+            db,
+            name=payload.name,
+            symbol=payload.symbol,
+            timeframe=payload.timeframe,
+            lookback=payload.lookback,
+            model_type=payload.model_type,
+            training_params=payload.training_params,
+            selected_features=payload.selected_features or None,
         )
+        audit_route_event(
+            db,
+            request,
+            action="model_training",
+            module="ai",
+            status="success",
+            message=f"Trained AI model {model.name}.",
+            user=user,
+            entity_type="ai_model",
+            entity_id=model.id,
+            details={"name": model.name, "symbol": model.symbol, "timeframe": model.timeframe, "model_type": model.model_type},
+        )
+        return AIModelRead.model_validate(model)
     except ValueError as exc:
+        audit_route_event(
+            db,
+            request,
+            action="model_training",
+            module="ai",
+            status="failed",
+            message=f"Failed AI model training for {payload.name}: {exc}",
+            user=user,
+            severity="error",
+            details=payload.model_dump(),
+        )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/ai/models/train", response_model=AIModelRead, tags=["ai"])
 def post_ai_model_train(
     payload: AIModelTrainRequest,
+    request: Request,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_permission("train_models")),
+    user: User = Depends(require_permission("train_models")),
 ) -> AIModelRead:
     try:
-        return AIModelRead.model_validate(
-            train_model(
-                db,
-                name=payload.name,
-                symbol=payload.symbol,
-                timeframe=payload.timeframe,
-                lookback=payload.lookback,
-                model_type=payload.model_type,
-                training_params=payload.training_params,
-                selected_features=payload.selected_features or None,
-            )
+        model = train_model(
+            db,
+            name=payload.name,
+            symbol=payload.symbol,
+            timeframe=payload.timeframe,
+            lookback=payload.lookback,
+            model_type=payload.model_type,
+            training_params=payload.training_params,
+            selected_features=payload.selected_features or None,
         )
+        audit_route_event(
+            db,
+            request,
+            action="model_training",
+            module="ai",
+            status="success",
+            message=f"Trained AI model {model.name}.",
+            user=user,
+            entity_type="ai_model",
+            entity_id=model.id,
+            details={"name": model.name, "symbol": model.symbol, "timeframe": model.timeframe, "model_type": model.model_type},
+        )
+        return AIModelRead.model_validate(model)
     except ValueError as exc:
+        audit_route_event(
+            db,
+            request,
+            action="model_training",
+            module="ai",
+            status="failed",
+            message=f"Failed AI model training for {payload.name}: {exc}",
+            user=user,
+            severity="error",
+            details=payload.model_dump(),
+        )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -1524,11 +1831,25 @@ def post_ai_model_retrain(
 @router.post("/ai/models/{model_id}/deploy", response_model=AIModelRead, tags=["ai"])
 def post_ai_model_deploy(
     model_id: int,
+    request: Request,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_permission("train_models")),
+    user: User = Depends(require_permission("train_models")),
 ) -> AIModelRead:
     try:
-        return AIModelRead.model_validate(deploy_model(db, model_id))
+        model = deploy_model(db, model_id)
+        audit_route_event(
+            db,
+            request,
+            action="model_activation",
+            module="ai",
+            status="success",
+            message=f"Deployed AI model {model.name}.",
+            user=user,
+            entity_type="ai_model",
+            entity_id=model.id,
+            details={"name": model.name, "symbol": model.symbol, "status": model.status, "deployed": model.deployed},
+        )
+        return AIModelRead.model_validate(model)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -1536,11 +1857,25 @@ def post_ai_model_deploy(
 @router.post("/ai/models/{model_id}/activate", response_model=AIModelRead, tags=["ai"])
 def post_ai_model_activate(
     model_id: int,
+    request: Request,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_permission("ai-models:manage")),
+    user: User = Depends(require_permission("ai-models:manage")),
 ) -> AIModelRead:
     try:
-        return AIModelRead.model_validate(ModelRegistryService(db).activate(model_id))
+        model = ModelRegistryService(db).activate(model_id)
+        audit_route_event(
+            db,
+            request,
+            action="model_activation",
+            module="ai",
+            status="success",
+            message=f"Activated AI model {model.name}.",
+            user=user,
+            entity_type="ai_model",
+            entity_id=model.id,
+            details={"name": model.name, "symbol": model.symbol, "status": model.status, "deployed": model.deployed},
+        )
+        return AIModelRead.model_validate(model)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -1623,26 +1958,83 @@ def get_brokers(
 @router.post("/brokers/connect", response_model=BrokerConnectionResponse, tags=["brokers"])
 def post_broker_connect(
     payload: BrokerConnectRequest,
+    request: Request,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_permission("api-credentials:manage")),
+    user: User = Depends(require_permission("api-credentials:manage")),
 ) -> BrokerConnectionResponse:
     try:
-        return BrokerConnectionResponse(broker=BrokerService(db).connect(payload.broker))
+        broker = BrokerService(db).connect(payload.broker)
+        audit_route_event(
+            db,
+            request,
+            action="broker_connection",
+            module="brokers",
+            status="success",
+            message=f"Connected broker {payload.broker}.",
+            user=user,
+            details={"broker": payload.broker},
+        )
+        return BrokerConnectionResponse(broker=broker)
     except ValueError as exc:
+        audit_route_event(
+            db,
+            request,
+            action="broker_connection",
+            module="brokers",
+            status="failed",
+            message=f"Failed broker connection for {payload.broker}: {exc}",
+            user=user,
+            severity="error",
+            details={"broker": payload.broker},
+        )
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except BrokerAdapterError as exc:
+        audit_route_event(
+            db,
+            request,
+            action="broker_connection",
+            module="brokers",
+            status="failed",
+            message=f"Failed broker connection for {payload.broker}: {exc}",
+            user=user,
+            severity="error",
+            details={"broker": payload.broker},
+        )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/brokers/disconnect", response_model=BrokerConnectionResponse, tags=["brokers"])
 def post_broker_disconnect(
     payload: BrokerDisconnectRequest,
+    request: Request,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_permission("api-credentials:manage")),
+    user: User = Depends(require_permission("api-credentials:manage")),
 ) -> BrokerConnectionResponse:
     try:
-        return BrokerConnectionResponse(broker=BrokerService(db).disconnect(payload.broker))
+        broker = BrokerService(db).disconnect(payload.broker)
+        audit_route_event(
+            db,
+            request,
+            action="broker_disconnection",
+            module="brokers",
+            status="success",
+            message=f"Disconnected broker {payload.broker}.",
+            user=user,
+            details={"broker": payload.broker},
+        )
+        return BrokerConnectionResponse(broker=broker)
     except ValueError as exc:
+        audit_route_event(
+            db,
+            request,
+            action="broker_disconnection",
+            module="brokers",
+            status="failed",
+            message=f"Failed broker disconnection for {payload.broker}: {exc}",
+            user=user,
+            severity="error",
+            details={"broker": payload.broker},
+        )
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
@@ -1692,16 +2084,61 @@ def get_broker_orders(
 def post_broker_order(
     broker: str,
     payload: BrokerOrderCreate,
+    request: Request,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_permission("api-credentials:manage")),
+    user: User = Depends(require_permission("api-credentials:manage")),
 ) -> BrokerOrderRead:
     try:
-        return BrokerService(db).place_order(broker, payload)
+        order = BrokerService(db).place_order(broker, payload)
+        audit_route_event(
+            db,
+            request,
+            action="trade_execution",
+            module="trading",
+            status="success",
+            message=f"Submitted {broker} order for {payload.symbol}.",
+            user=user,
+            details={"broker": broker, "symbol": payload.symbol, "side": payload.side, "quantity": payload.quantity},
+        )
+        return order
     except ValueError as exc:
+        audit_route_event(
+            db,
+            request,
+            action="trade_rejection",
+            module="trading",
+            status="rejected",
+            message=f"Rejected {broker} order for {payload.symbol}: {exc}",
+            user=user,
+            severity="warning",
+            details={"broker": broker, "symbol": payload.symbol, "side": payload.side, "quantity": payload.quantity},
+        )
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except BrokerNotImplementedError as exc:
+        audit_route_event(
+            db,
+            request,
+            action="trade_rejection",
+            module="trading",
+            status="rejected",
+            message=f"Rejected {broker} order for {payload.symbol}: {exc}",
+            user=user,
+            severity="warning",
+            details={"broker": broker, "symbol": payload.symbol, "side": payload.side, "quantity": payload.quantity},
+        )
         raise HTTPException(status_code=501, detail=str(exc)) from exc
     except BrokerAdapterError as exc:
+        audit_route_event(
+            db,
+            request,
+            action="trade_rejection",
+            module="trading",
+            status="rejected",
+            message=f"Rejected {broker} order for {payload.symbol}: {exc}",
+            user=user,
+            severity="warning",
+            details={"broker": broker, "symbol": payload.symbol, "side": payload.side, "quantity": payload.quantity},
+        )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -1733,12 +2170,38 @@ def get_paper_account(
 @router.post("/paper/orders", response_model=PaperTradingOrderRead, tags=["paper-trading"])
 def post_paper_trading_order(
     payload: PaperTradingOrderCreate,
+    request: Request,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_permission("orders:create")),
+    user: User = Depends(require_permission("orders:create")),
 ) -> PaperTradingOrderRead:
     try:
-        return PaperTradingService(db).create_order(payload)
+        order = PaperTradingService(db).create_order(payload)
+        audit_route_event(
+            db,
+            request,
+            action="trade_execution" if order.status != "rejected" else "trade_rejection",
+            module="trading",
+            status="success" if order.status != "rejected" else "rejected",
+            message=f"Paper trading order {order.status} for {order.symbol}.",
+            user=user,
+            entity_type="paper_order",
+            entity_id=order.id,
+            severity="info" if order.status != "rejected" else "warning",
+            details={"symbol": order.symbol, "side": order.side, "quantity": order.quantity, "status": order.status},
+        )
+        return order
     except ValueError as exc:
+        audit_route_event(
+            db,
+            request,
+            action="trade_rejection",
+            module="trading",
+            status="rejected",
+            message=f"Rejected paper trading order: {exc}",
+            user=user,
+            severity="warning",
+            details=payload.model_dump(),
+        )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -1806,12 +2269,46 @@ def get_orders(
 @router.post("/orders/paper", response_model=PaperOrderRead, tags=["paper-trading"])
 def post_paper_order(
     payload: PaperOrderRequest,
+    request: Request,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_permission("orders:create")),
+    user: User = Depends(require_permission("orders:create")),
 ) -> PaperOrderRead:
     try:
-        return order_to_schema(create_paper_order(db, payload))
+        order = create_paper_order(db, payload)
+        order_read = order_to_schema(order)
+        audit_route_event(
+            db,
+            request,
+            action="trade_execution" if order.status == "filled" else "trade_rejection",
+            module="trading",
+            status="success" if order.status == "filled" else "rejected",
+            message=f"Paper order {order.status} for {order.symbol_ref.symbol}.",
+            user=user,
+            entity_type="paper_order",
+            entity_id=order.id,
+            severity="info" if order.status == "filled" else "warning",
+            details={
+                "symbol": order.symbol_ref.symbol,
+                "side": order.side,
+                "quantity": order.quantity,
+                "status": order.status,
+                "risk_status": order.risk_status,
+                "risk_message": order.risk_message,
+            },
+        )
+        return order_read
     except ValueError as exc:
+        audit_route_event(
+            db,
+            request,
+            action="trade_rejection",
+            module="trading",
+            status="rejected",
+            message=f"Rejected paper order: {exc}",
+            user=user,
+            severity="warning",
+            details=payload.model_dump(),
+        )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -1906,14 +2403,19 @@ def get_equity_curve_endpoint(
     return get_equity_curve(db)
 
 
-@router.get("/audit/events", response_model=list[AuditEventRead], tags=["audit"])
-def get_audit_events(
+def audit_events_response(
+    db: Session,
+    *,
     limit: int = Query(50, ge=1, le=200),
-    event_type: str | None = Query(None),
-    severity: str | None = Query(None, pattern="^(info|warning|error)$"),
-    entity_type: str | None = Query(None),
-    db: Session = Depends(get_db),
-    _user: User = Depends(require_permission("audit:view")),
+    module: str | None = None,
+    action_type: str | None = None,
+    status: str | None = None,
+    user: str | None = None,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+    event_type: str | None = None,
+    severity: str | None = None,
+    entity_type: str | None = None,
 ) -> list[AuditEventRead]:
     return [
         audit_event_to_schema(event)
@@ -1923,8 +2425,106 @@ def get_audit_events(
             event_type=event_type,
             severity=severity,
             entity_type=entity_type,
+            module=module,
+            action_type=action_type,
+            status=status,
+            user=user,
+            start_date=start_date,
+            end_date=end_date,
         )
     ]
+
+
+@router.get("/audit", response_model=list[AuditEventRead], tags=["audit"])
+def get_audit(
+    limit: int = Query(100, ge=1, le=500),
+    module: str | None = Query(None),
+    action_type: str | None = Query(None),
+    status: str | None = Query(None),
+    user: str | None = Query(None),
+    start_date: datetime | None = Query(None),
+    end_date: datetime | None = Query(None),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("audit:view")),
+) -> list[AuditEventRead]:
+    return audit_events_response(
+        db,
+        limit=limit,
+        module=module,
+        action_type=action_type,
+        status=status,
+        user=user,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+
+@router.get("/audit/trades", response_model=list[AuditEventRead], tags=["audit"])
+def get_trade_audit(
+    limit: int = Query(100, ge=1, le=500),
+    action_type: str | None = Query(None),
+    status: str | None = Query(None),
+    user: str | None = Query(None),
+    start_date: datetime | None = Query(None),
+    end_date: datetime | None = Query(None),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("audit:view")),
+) -> list[AuditEventRead]:
+    return audit_events_response(db, limit=limit, module="trading", action_type=action_type, status=status, user=user, start_date=start_date, end_date=end_date)
+
+
+@router.get("/audit/users", response_model=list[AuditEventRead], tags=["audit"])
+def get_user_audit(
+    limit: int = Query(100, ge=1, le=500),
+    action_type: str | None = Query(None),
+    status: str | None = Query(None),
+    user: str | None = Query(None),
+    start_date: datetime | None = Query(None),
+    end_date: datetime | None = Query(None),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("audit:view")),
+) -> list[AuditEventRead]:
+    return audit_events_response(db, limit=limit, module="users", action_type=action_type, status=status, user=user, start_date=start_date, end_date=end_date)
+
+
+@router.get("/audit/ai", response_model=list[AuditEventRead], tags=["audit"])
+def get_ai_audit(
+    limit: int = Query(100, ge=1, le=500),
+    action_type: str | None = Query(None),
+    status: str | None = Query(None),
+    user: str | None = Query(None),
+    start_date: datetime | None = Query(None),
+    end_date: datetime | None = Query(None),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("audit:view")),
+) -> list[AuditEventRead]:
+    return audit_events_response(db, limit=limit, module="ai", action_type=action_type, status=status, user=user, start_date=start_date, end_date=end_date)
+
+
+@router.get("/audit/risk", response_model=list[AuditEventRead], tags=["audit"])
+def get_risk_audit(
+    limit: int = Query(100, ge=1, le=500),
+    action_type: str | None = Query(None),
+    status: str | None = Query(None),
+    user: str | None = Query(None),
+    start_date: datetime | None = Query(None),
+    end_date: datetime | None = Query(None),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("audit:view")),
+) -> list[AuditEventRead]:
+    return audit_events_response(db, limit=limit, module="risk", action_type=action_type, status=status, user=user, start_date=start_date, end_date=end_date)
+
+
+@router.get("/audit/events", response_model=list[AuditEventRead], tags=["audit"])
+def get_audit_events(
+    limit: int = Query(50, ge=1, le=200),
+    event_type: str | None = Query(None),
+    severity: str | None = Query(None, pattern="^(info|warning|error)$"),
+    entity_type: str | None = Query(None),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("audit:view")),
+) -> list[AuditEventRead]:
+    return audit_events_response(db, limit=limit, event_type=event_type, severity=severity, entity_type=entity_type)
 
 
 @router.get("/notifications", response_model=list[NotificationRead], tags=["notifications"])

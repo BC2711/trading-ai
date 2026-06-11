@@ -63,7 +63,12 @@ export async function register(payload: RegisterRequest): Promise<UserResource> 
   return response.data;
 }
 
-export function logout() {
+export async function logout() {
+  try {
+    await apiClient.post("/api/auth/logout");
+  } catch {
+    // Local logout should still succeed if the token is already expired or the network is unavailable.
+  }
   localStorage.removeItem("trading_ai_token");
   localStorage.removeItem("trading_ai_refresh_token");
 }
@@ -439,6 +444,12 @@ export type AuditEvent = {
   severity: "info" | "warning" | "error";
   message: string;
   metadata: Record<string, unknown>;
+  action: string;
+  user: string | null;
+  module: string;
+  ip_address: string | null;
+  status: string;
+  details: Record<string, unknown>;
   created_at: string;
 };
 

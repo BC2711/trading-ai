@@ -149,9 +149,9 @@ function UserProfileMenu({ name, role }: { name: string; role: string }) {
           key={item}
           type="button"
           className="w-full rounded-[8px] px-3 py-2 text-left text-sm font-semibold text-slate-700 transition hover:bg-white/20 dark:text-white/75 dark:hover:bg-white/10"
-          onClick={() => {
+          onClick={async () => {
             if (href === "logout") {
-              logout();
+              await logout();
               window.location.reload();
               return;
             }
