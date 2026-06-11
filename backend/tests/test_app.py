@@ -442,6 +442,53 @@ def test_websocket_stream_routes_emit_payloads() -> None:
             assert "payload" in payload
 
 
+def test_notification_settings_and_bulk_mark_read() -> None:
+    with TestClient(app) as client:
+        headers = auth_headers(client)
+        settings_response = client.get("/api/notifications/settings", headers=headers)
+        update_response = client.put(
+            "/api/notifications/settings",
+            headers=headers,
+            json={
+                "email_enabled": True,
+                "telegram_enabled": True,
+                "trade_alerts": False,
+                "risk_alerts": True,
+                "ai_alerts": True,
+                "system_alerts": True,
+            },
+        )
+        notification_response = client.post(
+            "/api/notifications",
+            headers=headers,
+            json={"title": "Broker disconnected", "message": "Binance paper adapter disconnected.", "severity": "warning"},
+        )
+        mark_response = client.post(
+            "/api/notifications/mark-read",
+            headers=headers,
+            json={"notification_ids": [notification_response.json()["id"]]},
+        )
+        navigation_response = client.get("/api/navigation", headers=headers)
+
+    assert settings_response.status_code == 200
+    settings = settings_response.json()
+    assert {"channels", "events", "in_app_enabled", "email_enabled"}.issubset(settings)
+    assert {"trade_executed", "trade_rejected", "stop_loss_hit", "take_profit_hit", "ai_signal_generated"}.issubset(
+        {event["key"] for event in settings["events"]}
+    )
+    assert update_response.status_code == 200
+    updated = update_response.json()
+    assert updated["email_enabled"] is True
+    assert updated["telegram_enabled"] is True
+    assert any(event["category"] == "trade" and event["enabled"] is False for event in updated["events"])
+    assert notification_response.status_code == 200
+    assert mark_response.status_code == 200
+    assert mark_response.json()["updated_count"] == 1
+    assert mark_response.json()["notifications"][0]["is_read"] is True
+    administration = next(item for item in navigation_response.json() if item["label"] == "Administration")
+    assert "Notification Settings" in {child["label"] for child in administration["children"]}
+
+
 def test_portfolio_management_endpoints_return_aggregate_shapes() -> None:
     with TestClient(app) as client:
         headers = auth_headers(client)

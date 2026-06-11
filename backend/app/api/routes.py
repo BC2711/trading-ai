@@ -91,6 +91,12 @@ from app.schemas.brokers import (
 from app.schemas.calendar import EconomicCalendarEventCreate, EconomicCalendarEventRead
 from app.schemas.copilot import CopilotChatRequest, CopilotChatResponse, CopilotMessage
 from app.schemas.features import FeatureCalculationRequest, FeatureCalculationResponse, FeatureSetRead, MarketFeatureRead
+from app.schemas.notifications import (
+    NotificationMarkReadRequest,
+    NotificationMarkReadResponse,
+    NotificationSettingsRead,
+    NotificationSettingsUpdate,
+)
 from app.schemas.risk import (
     PositionSizeRequest,
     PositionSizeResponse,
@@ -201,6 +207,11 @@ from app.services.risk import (
 from app.services.risk.monte_carlo import get_monte_carlo_run, run_monte_carlo
 from app.services.scanner import get_scanner_results, run_scanner, scanner_signals
 from app.services.sentiment import analyze_sentiment, get_market_sentiment, get_symbol_sentiment
+from app.services.notifications import (
+    get_notification_settings,
+    mark_notifications_read,
+    update_notification_settings,
+)
 from app.services.strategy_builder import (
     create_strategy_builder,
     evaluate_strategy,
@@ -243,13 +254,19 @@ NAVIGATION_ITEMS = [
         ],
     },
     {
-        "label": "Admin",
+        "label": "Administration",
         "href": "#/users",
         "icon": "users",
         "permission": "users:manage",
         "children": [
             {"label": "Users", "href": "#/users", "icon": "users", "permission": "users:manage"},
             {"label": "API Keys", "href": "#/api-keys", "icon": "key", "permission": "api-credentials:manage"},
+            {
+                "label": "Notification Settings",
+                "href": "#/administration/notification-settings",
+                "icon": "bell",
+                "permission": "notifications:manage",
+            },
         ],
     },
     {
@@ -1822,6 +1839,30 @@ def post_notification(
     _user: User = Depends(require_role("admin")),
 ) -> NotificationRead:
     return NotificationRead.model_validate(create_notification(db, payload))
+
+
+@router.post("/notifications/mark-read", response_model=NotificationMarkReadResponse, tags=["notifications"])
+def post_notifications_mark_read(
+    payload: NotificationMarkReadRequest,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("notifications:view")),
+) -> NotificationMarkReadResponse:
+    return mark_notifications_read(db, payload)
+
+
+@router.get("/notifications/settings", response_model=NotificationSettingsRead, tags=["notifications"])
+def get_notifications_settings(
+    _user: User = Depends(require_permission("notifications:view")),
+) -> NotificationSettingsRead:
+    return get_notification_settings()
+
+
+@router.put("/notifications/settings", response_model=NotificationSettingsRead, tags=["notifications"])
+def put_notifications_settings(
+    payload: NotificationSettingsUpdate,
+    _user: User = Depends(require_permission("notifications:manage")),
+) -> NotificationSettingsRead:
+    return update_notification_settings(payload)
 
 
 @router.post("/notifications/{notification_id}/read", response_model=NotificationRead, tags=["notifications"])

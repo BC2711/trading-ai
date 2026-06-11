@@ -58,6 +58,9 @@ const NewsSentimentPage = lazy(() =>
 const EconomicCalendarPage = lazy(() =>
   import("./pages/EconomicCalendarPage").then((module) => ({ default: module.EconomicCalendarPage }))
 );
+const NotificationSettingsPage = lazy(() =>
+  import("./pages/NotificationSettingsPage").then((module) => ({ default: module.NotificationSettingsPage }))
+);
 const RiskAnalyticsPage = lazy(() =>
   import("./pages/RiskAnalyticsPage").then((module) => ({ default: module.RiskAnalyticsPage }))
 );
@@ -127,6 +130,7 @@ function renderRoute(route: string) {
   if (route.startsWith("positions") || route === "trading/positions") return <PositionsPage />;
   if (route.startsWith("trade-history")) return <TradeHistoryPage />;
   if (route.startsWith("logs")) return <LogsPage />;
+  if (route.startsWith("administration/notification-settings") || route.startsWith("notifications/settings")) return <NotificationSettingsPage />;
   if (route.startsWith("notifications")) return <NotificationsPage />;
   if (route.startsWith("trading")) return <TradingPage />;
   if (route.startsWith("activity")) return <ActivityPage />;

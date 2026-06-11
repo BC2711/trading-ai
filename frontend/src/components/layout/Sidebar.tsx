@@ -84,13 +84,14 @@ const fallbackNavItems: NavItem[] = [
     ]
   },
   {
-    label: "Admin",
+    label: "Administration",
     icon: Users,
     href: "#/users",
     permission: "users:manage",
     children: [
       { label: "Users", icon: Users, href: "#/users", permission: "users:manage" },
-      { label: "API Keys", icon: KeyRound, href: "#/api-keys", permission: "api-credentials:manage" }
+      { label: "API Keys", icon: KeyRound, href: "#/api-keys", permission: "api-credentials:manage" },
+      { label: "Notification Settings", icon: Bell, href: "#/administration/notification-settings", permission: "notifications:manage" }
     ]
   },
   {
