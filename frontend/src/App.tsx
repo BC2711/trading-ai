@@ -51,6 +51,9 @@ const BrokerConnectionsPage = lazy(() =>
 const MarketScannerPage = lazy(() =>
   import("./pages/MarketScannerPage").then((module) => ({ default: module.MarketScannerPage }))
 );
+const NewsSentimentPage = lazy(() =>
+  import("./pages/NewsSentimentPage").then((module) => ({ default: module.NewsSentimentPage }))
+);
 const RiskAnalyticsPage = lazy(() =>
   import("./pages/RiskAnalyticsPage").then((module) => ({ default: module.RiskAnalyticsPage }))
 );
@@ -112,6 +115,7 @@ function renderRoute(route: string) {
   if (route.startsWith("portfolio") || route === "trading/portfolio") return <PortfolioPage />;
   if (route.startsWith("paper") || route === "trading/paper") return <PaperTradingPage />;
   if (route.startsWith("brokers") || route === "trading/brokers") return <BrokerConnectionsPage />;
+  if (route.startsWith("market/sentiment") || route.startsWith("sentiment")) return <NewsSentimentPage />;
   if (route.startsWith("market/scanner") || route.startsWith("scanner")) return <MarketScannerPage />;
   if (route.startsWith("orders") || route === "trading/orders") return <OrdersPage />;
   if (route.startsWith("positions") || route === "trading/positions") return <PositionsPage />;

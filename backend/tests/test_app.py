@@ -339,6 +339,36 @@ def test_copilot_chat_returns_grounded_answer_and_history() -> None:
     assert "AI Copilot" in {child["label"] for child in ai_nav["children"]}
 
 
+def test_sentiment_endpoints_return_market_and_symbol_sentiment() -> None:
+    with TestClient(app) as client:
+        headers = auth_headers(client)
+        market_response = client.get("/api/sentiment", headers=headers)
+        symbol_response = client.get("/api/sentiment/BTCUSDT", headers=headers)
+        analyze_response = client.post("/api/sentiment/analyze", headers=headers, json={"symbol": "ETHUSDT"})
+        navigation_response = client.get("/api/navigation", headers=headers)
+
+    assert market_response.status_code == 200
+    market = market_response.json()
+    assert {"market_sentiment_score", "market_status", "items"}.issubset(market)
+    assert market["items"]
+    assert {
+        "symbol",
+        "sentiment_score",
+        "status",
+        "headline",
+        "source",
+        "date",
+        "impact_level",
+        "related_asset",
+    }.issubset(market["items"][0])
+    assert symbol_response.status_code == 200
+    assert all(item["symbol"] == "BTCUSDT" for item in symbol_response.json()["items"])
+    assert analyze_response.status_code == 200
+    assert all(item["symbol"] == "ETHUSDT" for item in analyze_response.json()["items"])
+    market_nav = next(item for item in navigation_response.json() if item["label"] == "Market")
+    assert "News Sentiment" in {child["label"] for child in market_nav["children"]}
+
+
 def test_portfolio_management_endpoints_return_aggregate_shapes() -> None:
     with TestClient(app) as client:
         headers = auth_headers(client)

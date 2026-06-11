@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   Menu,
   MessageCircle,
+  Newspaper,
   ScanSearch,
   Settings,
   Sparkles,
@@ -58,6 +59,7 @@ const iconMap: Record<string, LucideIcon> = {
   key: KeyRound,
   "layout-dashboard": LayoutDashboard,
   "message-circle": MessageCircle,
+  newspaper: Newspaper,
   "scan-search": ScanSearch,
   "shield-check": ShieldCheck,
   "sliders-horizontal": SlidersHorizontal,
@@ -108,7 +110,8 @@ const fallbackNavItems: NavItem[] = [
     href: "#/market/scanner",
     permission: "signals:view",
     children: [
-      { label: "Market Scanner", icon: ScanSearch, href: "#/market/scanner", permission: "signals:view" }
+      { label: "Market Scanner", icon: ScanSearch, href: "#/market/scanner", permission: "signals:view" },
+      { label: "News Sentiment", icon: Newspaper, href: "#/market/sentiment", permission: "signals:view" }
     ]
   },
   {

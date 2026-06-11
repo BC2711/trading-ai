@@ -116,6 +116,7 @@ from app.schemas.strategy_builder import (
     StrategyRulesUpdate,
 )
 from app.schemas.scanner import ScannerRead, ScannerRunRequest
+from app.schemas.sentiment import SentimentAnalyzeRequest, SentimentResponse
 from app.core.config import settings
 from app.core.security import create_access_token, create_refresh_token, decode_jwt, decode_refresh_token
 from app.db.auth import get_current_user as require_current_user, require_permission, require_role
@@ -194,6 +195,7 @@ from app.services.risk import (
 )
 from app.services.risk.monte_carlo import get_monte_carlo_run, run_monte_carlo
 from app.services.scanner import get_scanner_results, run_scanner, scanner_signals
+from app.services.sentiment import analyze_sentiment, get_market_sentiment, get_symbol_sentiment
 from app.services.strategy_builder import (
     create_strategy_builder,
     evaluate_strategy,
@@ -264,6 +266,7 @@ NAVIGATION_ITEMS = [
         "permission": "signals:view",
         "children": [
             {"label": "Market Scanner", "href": "#/market/scanner", "icon": "scan-search", "permission": "signals:view"},
+            {"label": "News Sentiment", "href": "#/market/sentiment", "icon": "newspaper", "permission": "signals:view"},
         ],
     },
     {
@@ -796,6 +799,33 @@ def get_scanner_signals(
     _user: User = Depends(require_permission("signals:view")),
 ) -> list[ScannerRead]:
     return scanner_signals(db, min_confidence=min_confidence, timeframe=timeframe)
+
+
+@router.get("/sentiment", response_model=SentimentResponse, tags=["sentiment"])
+def get_sentiment(
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("signals:view")),
+) -> SentimentResponse:
+    return get_market_sentiment(db)
+
+
+@router.post("/sentiment/analyze", response_model=SentimentResponse, tags=["sentiment"])
+def post_sentiment_analyze(
+    payload: SentimentAnalyzeRequest | None = None,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("signals:generate")),
+) -> SentimentResponse:
+    payload = payload or SentimentAnalyzeRequest()
+    return analyze_sentiment(db, symbol=payload.symbol)
+
+
+@router.get("/sentiment/{symbol}", response_model=SentimentResponse, tags=["sentiment"])
+def get_symbol_sentiment_endpoint(
+    symbol: str,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("signals:view")),
+) -> SentimentResponse:
+    return get_symbol_sentiment(db, symbol)
 
 
 @router.post("/copilot/chat", response_model=CopilotChatResponse, tags=["copilot"])
