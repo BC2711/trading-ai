@@ -77,47 +77,9 @@ The backend image is built from [backend/Dockerfile](backend/Dockerfile). It ins
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers
 ```
 
-### Backend Setup
-
-For production, the backend reads configuration from `.env` through Docker Compose. Required production values include `API_KEY`, `JWT_SECRET`, `JWT_REFRESH_SECRET`, `CREDENTIAL_ENCRYPTION_SECRET`, `ALLOWED_HOSTS`, `CORS_ORIGINS`, PostgreSQL settings, and Redis/Celery URLs.
-
-Build the backend image:
-
-```bash
-docker compose --env-file .env build backend
-```
-
-Run backend migrations:
-
-```bash
-docker compose --env-file .env run --rm backend alembic upgrade head
-```
-
-Start only the backend and its dependencies:
-
-```bash
-docker compose --env-file .env up -d postgres redis backend
-```
-
 ### Frontend Dockerfile
 
 The frontend image is built from [frontend/Dockerfile](frontend/Dockerfile). It builds the Vite app with public `VITE_*` build args, then serves the compiled `dist` directory with Nginx on port `80`.
-
-### Frontend Setup
-
-For production behind the included Nginx proxy, leave `VITE_API_BASE_URL` empty so browser requests use the same origin. If API key auth is enabled, set `VITE_API_KEY` to the same placeholder value you replace in `API_KEY`.
-
-Build the frontend image:
-
-```bash
-docker compose --env-file .env build frontend
-```
-
-Start only the frontend after the backend is healthy:
-
-```bash
-docker compose --env-file .env up -d frontend
-```
 
 ### Nginx
 
@@ -131,7 +93,9 @@ The public reverse proxy is configured in [nginx/nginx.conf](nginx/nginx.conf). 
 
 ### Database Migrations
 
-Run migrations after building images and before accepting production traffic:
+**Important:** In production environments, `Base.metadata.create_all` is disabled. All schema changes must be applied via Alembic migrations to ensure auditability and data safety.
+
+Run migrations before accepting production traffic:
 
 ```bash
 docker compose run --rm backend alembic upgrade head
@@ -301,77 +265,4 @@ Core endpoints:
 
 Implementation modules:
 
-- `MarketDataService`: import, validation, repair, and stream ingestion orchestration.
-- `MarketDataRepository`: persistence, upserts, latest reads, symbol normalization, and missing candle detection.
-- `MarketDataScheduler`: scheduled update/repair facade.
-- `MarketDataWebsocket`: channel-based realtime fanout.
-
-## AI Provider
-
-The backend supports a rule-based AI provider by default. Set `AI_PROVIDER=openai` and provide `OPENAI_API_KEY` to enable OpenAI-based analysis.
-
-### Local LLM (llama-cpp)
-
-You can run a local LLM using `llama-cpp-python` and a GGUF/ggml model file. Steps:
-
-1. Install `llama-cpp-python` in the backend environment:
-
-```bash
-pip install llama-cpp-python
-```
-
-2. Download a compatible GGUF/ggml model and place it on the host, for example `/models/llama2.gguf`.
-
-3. Configure the backend to point at the model by setting `LOCAL_MODEL_PATH` in your `.env` or Docker configuration:
-
-```
-LOCAL_MODEL_PATH=/models/llama2.gguf
-AI_PROVIDER=local-llama
-```
-
-4. Restart the backend (or Docker compose) and the `/api/ai/analyze-signal` endpoint will attempt to use the local model. If the model or library is missing the service will fall back to the rule-based provider.
-
-Notes:
-- Running local LLMs requires significant CPU/RAM; consider GPU or quantized models for performance.
-- For Ollama users, configure `OLLAMA_BASE_URL` and `OLLAMA_MODEL` and set `AI_PROVIDER=ollama`.
-
-## AI Training Pipeline
-
-The backend includes a feature-engineering and model-management pipeline for directional prediction on candle history.
-
-Feature generation includes RSI, MACD, EMA, SMA, ATR, ADX, Bollinger Bands, candle returns/ranges, spread, volume ratio, volume moving average, and OBV.
-
-Supported model types:
-
-- `random_forest`
-- `xgboost`
-- `lightgbm`
-- `lstm`
-- `gru`
-- `transformer`
-
-`xgboost` uses XGBoost, `lightgbm` uses native LightGBM, and `lstm`, `gru`, and `transformer` use native PyTorch sequence classifiers when the installed backend requirements are present. TensorFlow is included in the backend ML dependency set for future TensorFlow/Keras model adapters. If a heavyweight runtime is not installed in a local development environment, the service degrades to sklearn-compatible fallback models instead of preventing the API from starting.
-
-Core endpoints:
-
-- `POST /api/ai/models/train`
-- `POST /api/ai/models/{model_id}/retrain`
-- `POST /api/ai/models/{model_id}/deploy`
-- `POST /api/ai/models/{model_id}/disable`
-- `POST /api/ai/models/compare`
-- `POST /api/ai/models/{model_id}/predict`
-
-Implementation modules:
-
-- `FeatureService`: feature engineering and supervised dataset creation.
-- `ModelService`: model factory and artifact persistence.
-- `ModelEvaluationService`: accuracy, precision, recall, F1, ROC AUC, and confidence metrics.
-- `TrainingService`: train, retrain, deploy, disable, compare, version, and predict orchestration.
-
-## Stack
-
-Backend: Python, FastAPI, SQLAlchemy, Alembic, PostgreSQL, Redis, Celery, APScheduler, Pandas, NumPy, Scikit-learn, XGBoost, pandas-ta, Sentry, Prometheus metrics.
-
-Frontend: React, TypeScript, Tailwind CSS, Recharts, Axios, TanStack Query, Zustand, Sentry.
-
-Infrastructure: Docker Compose, Nginx, PostgreSQL, Redis, GitHub Actions, Prometheus, Grafana. VPS deployment can use the same Docker Compose stack behind your VPS firewall and DNS.
+- `MarketDat

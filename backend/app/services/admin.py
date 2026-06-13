@@ -3,7 +3,7 @@ import re
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.core.security import encrypt_secret, hash_password, verify_password
+from app.core.security import encrypt_secret, hash_password, verify_password, decode_refresh_token
 from app.models import AIModelMetadata, ApiCredential, Notification, Permission, Role, RolePermission, SystemLog, User, UserRole
 from app.schemas.trading import ApiCredentialCreate, ApiCredentialUpdate, NotificationCreate, RoleCreate, RoleUpdate, UserCreate, UserUpdate
 from app.services.audit import record_event
@@ -323,6 +323,20 @@ def assign_roles_to_user(db: Session, user_id: int, role_ids: list[int]) -> User
     db.commit()
     db.refresh(user)
     return user
+
+def revoke_refresh_token(db: Session, token: str) -> bool:
+    """
+    In production, this should write to a 'RevokedToken' table or Redis blacklist.
+    """
+    payload = decode_refresh_token(token)
+    if not payload:
+        return False
+    
+    # Placeholder for actual persistence logic
+    # db.add(RevokedToken(jti=payload["jti"]))
+    # db.commit()
+    
+    return True
 
 
 def register_user(db: Session, payload: UserCreate) -> User:

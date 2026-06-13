@@ -5,6 +5,15 @@ __pycache__/
 venv/
 backend/venv/
 .env
+.env.local
+.env.*.local
+*.sqlite
+*.sqlite3
+
+# ML Artifacts
+backend/models/*.gguf
+backend/models/*.pkl
+backend/models/*.joblib
 
 # Node
 node_modules/
@@ -14,11 +23,10 @@ dist/
 # Logs
 *.log
 
-# Local databases
-*.sqlite
-*.sqlite3
-
 # OS/editor
 .DS_Store
 Thumbs.db
 .vscode/
+.idea/
+*.swp
+*.swo
