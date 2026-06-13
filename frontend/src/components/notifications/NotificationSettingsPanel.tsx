@@ -11,11 +11,11 @@ type NotificationSettingsPanelProps = {
 };
 
 const channelControls = [
-  { key: "in_app_enabled", label: "In-app", detail: "Workspace alerts and live notification stream.", icon: Bell, placeholder: false },
-  { key: "email_enabled", label: "Email", detail: "Email delivery placeholder.", icon: Mail, placeholder: true },
-  { key: "telegram_enabled", label: "Telegram", detail: "Telegram bot delivery placeholder.", icon: Send, placeholder: true },
-  { key: "whatsapp_enabled", label: "WhatsApp", detail: "WhatsApp delivery placeholder.", icon: Smartphone, placeholder: true },
-  { key: "discord_enabled", label: "Discord", detail: "Discord webhook delivery placeholder.", icon: MessageCircle, placeholder: true }
+  { key: "in_app_enabled", channelKey: "in_app", label: "In-app", detail: "Workspace alerts and live notification stream.", icon: Bell, placeholder: false },
+  { key: "email_enabled", channelKey: "email", label: "Email", detail: "SMTP email delivery.", icon: Mail, placeholder: false },
+  { key: "telegram_enabled", channelKey: "telegram", label: "Telegram", detail: "Telegram bot delivery.", icon: Send, placeholder: false },
+  { key: "whatsapp_enabled", channelKey: "whatsapp", label: "WhatsApp", detail: "WhatsApp Cloud API delivery.", icon: Smartphone, placeholder: false },
+  { key: "discord_enabled", channelKey: "discord", label: "Discord", detail: "Discord webhook delivery.", icon: MessageCircle, placeholder: false }
 ] as const;
 
 const alertControls = [
@@ -41,17 +41,21 @@ export function NotificationSettingsPanel({ value, settings, onChange }: Notific
           </div>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
-          {channelControls.map((control) => (
-            <NotificationToggle
-              key={control.key}
-              label={control.label}
-              detail={control.detail}
-              icon={control.icon}
-              placeholder={control.placeholder}
-              checked={Boolean(value[control.key])}
-              onChange={(checked) => setField(control.key, checked)}
-            />
-          ))}
+          {channelControls.map((control) => {
+            const channel = settings?.channels.find((item) => item.key === control.channelKey);
+            return (
+              <NotificationToggle
+                key={control.key}
+                label={control.label}
+                detail={control.detail}
+                icon={control.icon}
+                placeholder={control.placeholder}
+                configured={channel?.configured ?? true}
+                checked={Boolean(value[control.key])}
+                onChange={(checked) => setField(control.key, checked)}
+              />
+            );
+          })}
         </div>
       </Card>
 

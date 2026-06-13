@@ -9,6 +9,7 @@ type NotificationToggleProps = {
   checked: boolean;
   icon: LucideIcon;
   placeholder?: boolean;
+  configured?: boolean;
   onChange: (checked: boolean) => void;
 };
 
@@ -18,6 +19,7 @@ export function NotificationToggle({
   checked,
   icon: Icon,
   placeholder = false,
+  configured = true,
   onChange
 }: NotificationToggleProps) {
   return (
@@ -41,6 +43,7 @@ export function NotificationToggle({
         <span className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-black text-slate-950 dark:text-white">{label}</span>
           {placeholder ? <Badge tone="warning">Placeholder</Badge> : null}
+          {!configured ? <Badge tone="warning">Not configured</Badge> : null}
         </span>
         <span className="mt-1 block text-xs font-semibold leading-5 text-slate-500 dark:text-white/45">{detail}</span>
       </span>

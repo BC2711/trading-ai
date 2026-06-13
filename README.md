@@ -63,6 +63,7 @@ Important backend variables:
 - `OPENAI_API_KEY`: optional placeholder only; leave empty unless using OpenAI.
 - `SENTIMENT_PROVIDERS`: enabled sentiment adapters, for example `["newsapi","cryptopanic","reddit","x"]`.
 - `NEWS_API_KEY`, `CRYPTOPANIC_API_KEY`, `REDDIT_BEARER_TOKEN`, `X_BEARER_TOKEN`: optional provider credentials. Missing keys skip that provider and the backend falls back to deterministic local sentiment if no provider returns data.
+- `NOTIFICATION_EMAIL_*`, `TELEGRAM_*`, `WHATSAPP_*`, `DISCORD_WEBHOOK_URL`: optional notification provider credentials and endpoints. Missing keys mark enabled channels as not configured and are never returned to the frontend.
 - `SENTRY_DSN` and `VITE_SENTRY_DSN`: optional monitoring DSNs.
 
 Important frontend variables:

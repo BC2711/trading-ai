@@ -621,45 +621,77 @@ def test_websocket_stream_routes_emit_payloads() -> None:
 
 
 def test_notification_settings_and_bulk_mark_read() -> None:
-    with TestClient(app) as client:
-        headers = auth_headers(client)
-        settings_response = client.get("/api/notifications/settings", headers=headers)
-        update_response = client.put(
-            "/api/notifications/settings",
-            headers=headers,
-            json={
-                "email_enabled": True,
-                "telegram_enabled": True,
-                "trade_alerts": False,
-                "risk_alerts": True,
-                "ai_alerts": True,
-                "system_alerts": True,
-            },
-        )
-        notification_response = client.post(
-            "/api/notifications",
-            headers=headers,
-            json={"title": "Broker disconnected", "message": "Binance paper adapter disconnected.", "severity": "warning"},
-        )
-        mark_response = client.post(
-            "/api/notifications/mark-read",
-            headers=headers,
-            json={"notification_ids": [notification_response.json()["id"]]},
-        )
-        navigation_response = client.get("/api/navigation", headers=headers)
+    original_provider_settings = {
+        "notification_email_smtp_host": settings.notification_email_smtp_host,
+        "notification_email_from": settings.notification_email_from,
+        "notification_email_to": settings.notification_email_to,
+        "telegram_bot_token": settings.telegram_bot_token,
+        "telegram_chat_id": settings.telegram_chat_id,
+        "whatsapp_access_token": settings.whatsapp_access_token,
+        "whatsapp_phone_number_id": settings.whatsapp_phone_number_id,
+        "whatsapp_to_number": settings.whatsapp_to_number,
+        "discord_webhook_url": settings.discord_webhook_url,
+    }
+    settings.notification_email_smtp_host = None
+    settings.notification_email_from = None
+    settings.notification_email_to = []
+    settings.telegram_bot_token = None
+    settings.telegram_chat_id = None
+    settings.whatsapp_access_token = None
+    settings.whatsapp_phone_number_id = None
+    settings.whatsapp_to_number = None
+    settings.discord_webhook_url = None
+    try:
+        with TestClient(app) as client:
+            headers = auth_headers(client)
+            settings_response = client.get("/api/notifications/settings", headers=headers)
+            update_response = client.put(
+                "/api/notifications/settings",
+                headers=headers,
+                json={
+                    "email_enabled": True,
+                    "telegram_enabled": True,
+                    "trade_alerts": False,
+                    "risk_alerts": True,
+                    "ai_alerts": True,
+                    "system_alerts": True,
+                },
+            )
+            notification_response = client.post(
+                "/api/notifications",
+                headers=headers,
+                json={"title": "Broker disconnected", "message": "Binance paper adapter disconnected.", "severity": "warning"},
+            )
+            mark_response = client.post(
+                "/api/notifications/mark-read",
+                headers=headers,
+                json={"notification_ids": [notification_response.json()["id"]]},
+            )
+            navigation_response = client.get("/api/navigation", headers=headers)
+    finally:
+        for key, value in original_provider_settings.items():
+            setattr(settings, key, value)
 
     assert settings_response.status_code == 200
-    settings = settings_response.json()
-    assert {"channels", "events", "in_app_enabled", "email_enabled"}.issubset(settings)
+    settings_payload = settings_response.json()
+    assert {"channels", "events", "in_app_enabled", "email_enabled"}.issubset(settings_payload)
     assert {"trade_executed", "trade_rejected", "stop_loss_hit", "take_profit_hit", "ai_signal_generated"}.issubset(
-        {event["key"] for event in settings["events"]}
+        {event["key"] for event in settings_payload["events"]}
     )
     assert update_response.status_code == 200
     updated = update_response.json()
     assert updated["email_enabled"] is True
     assert updated["telegram_enabled"] is True
+    email_channel = next(channel for channel in updated["channels"] if channel["key"] == "email")
+    assert email_channel["placeholder"] is False
+    assert email_channel["configured"] is False
     assert any(event["category"] == "trade" and event["enabled"] is False for event in updated["events"])
     assert notification_response.status_code == 200
+    notification = notification_response.json()
+    assert {"in_app", "email", "telegram", "whatsapp", "discord"}.issubset(notification["delivery_status"])
+    assert notification["delivery_status"]["in_app"]["status"] == "delivered"
+    assert notification["delivery_status"]["email"]["status"] == "not_configured"
+    assert "delivery_attempted_at" in notification
     assert mark_response.status_code == 200
     assert mark_response.json()["updated_count"] == 1
     assert mark_response.json()["notifications"][0]["is_read"] is True

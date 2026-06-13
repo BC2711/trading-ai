@@ -64,13 +64,26 @@ MARKET_CANDLE_COLUMNS = {
     },
 }
 
+NOTIFICATION_COLUMNS = {
+    "delivery_status": {
+        "postgresql": "JSON NOT NULL DEFAULT '{}'",
+        "sqlite": "JSON NOT NULL DEFAULT '{}'",
+        "default": "JSON NOT NULL DEFAULT '{}'",
+    },
+    "delivery_attempted_at": {
+        "postgresql": "TIMESTAMP WITH TIME ZONE NULL",
+        "sqlite": "DATETIME NULL",
+        "default": "TIMESTAMP NULL",
+    },
+}
+
 
 def ensure_schema_compatibility(engine: Engine) -> None:
     """Repair additive columns needed before startup seed queries can run."""
     with engine.begin() as connection:
         inspector = inspect(connection)
         table_names = set(inspector.get_table_names())
-        if not {"risk_settings", "strategies", "market_candles"}.intersection(table_names):
+        if not {"risk_settings", "strategies", "market_candles", "notifications"}.intersection(table_names):
             return
 
         dialect = connection.dialect.name
@@ -80,6 +93,8 @@ def ensure_schema_compatibility(engine: Engine) -> None:
             _add_missing_columns(connection, "risk_settings", RISK_SETTING_COLUMNS, dialect)
         if "strategies" in table_names:
             _add_missing_columns(connection, "strategies", STRATEGY_COLUMNS, dialect)
+        if "notifications" in table_names:
+            _add_missing_columns(connection, "notifications", NOTIFICATION_COLUMNS, dialect)
 
 
 def _add_missing_columns(connection, table_name: str, columns: dict[str, dict[str, str]], dialect: str) -> None:

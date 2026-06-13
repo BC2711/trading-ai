@@ -9,6 +9,7 @@ class NotificationChannelRead(BaseModel):
     key: str
     label: str
     enabled: bool
+    configured: bool = False
     placeholder: bool = False
 
 

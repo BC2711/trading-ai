@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -14,14 +15,24 @@ from app.schemas.notifications import (
 )
 from app.schemas.trading import NotificationCreate, NotificationRead
 from app.services.admin import create_notification
+from app.services.notification_providers import (
+    DeliveryResult,
+    DiscordNotificationProvider,
+    EmailNotificationProvider,
+    NotificationPayload,
+    NotificationProvider,
+    TelegramNotificationProvider,
+    WhatsAppNotificationProvider,
+)
 
+logger = logging.getLogger(__name__)
 
 SUPPORTED_CHANNELS = [
     {"key": "in_app", "label": "In-app", "placeholder": False},
-    {"key": "email", "label": "Email", "placeholder": True},
-    {"key": "telegram", "label": "Telegram", "placeholder": True},
-    {"key": "whatsapp", "label": "WhatsApp", "placeholder": True},
-    {"key": "discord", "label": "Discord", "placeholder": True},
+    {"key": "email", "label": "Email", "placeholder": False},
+    {"key": "telegram", "label": "Telegram", "placeholder": False},
+    {"key": "whatsapp", "label": "WhatsApp", "placeholder": False},
+    {"key": "discord", "label": "Discord", "placeholder": False},
 ]
 
 SUPPORTED_EVENTS = [
@@ -48,6 +59,14 @@ _SETTINGS = {
     "ai_alerts": True,
     "system_alerts": True,
     "updated_at": datetime.now(timezone.utc),
+}
+
+CHANNEL_SETTING_KEYS = {
+    "in_app": "in_app_enabled",
+    "email": "email_enabled",
+    "telegram": "telegram_enabled",
+    "whatsapp": "whatsapp_enabled",
+    "discord": "discord_enabled",
 }
 
 
@@ -97,18 +116,72 @@ def dispatch_notification(
     message: str,
     severity: str = "info",
 ) -> Notification | None:
-    if not _event_enabled(event_key) or not _SETTINGS["in_app_enabled"]:
+    if not _event_enabled(event_key):
         return None
-    return create_notification(db, NotificationCreate(title=title, message=message, severity=severity))
+    return create_and_dispatch_notification(
+        db,
+        NotificationCreate(title=title, message=message, severity=severity),
+        event_key=event_key,
+    )
+
+
+def create_and_dispatch_notification(
+    db: Session,
+    payload: NotificationCreate,
+    event_key: str = "manual_notification",
+) -> Notification:
+    notification = create_notification(db, payload)
+    delivery_status = dispatch_to_channels(NotificationPayload(title=payload.title, message=payload.message, severity=payload.severity))
+    notification.delivery_status = delivery_status
+    notification.delivery_attempted_at = datetime.now(timezone.utc)
+    db.add(notification)
+    db.commit()
+    db.refresh(notification)
+    return notification
+
+
+def dispatch_to_channels(payload: NotificationPayload) -> dict[str, dict[str, str]]:
+    results: dict[str, DeliveryResult] = {
+        "in_app": DeliveryResult.delivered("in_app", "In-app")
+        if _SETTINGS["in_app_enabled"]
+        else DeliveryResult.skipped("in_app", "In-app", "Channel is disabled.")
+    }
+
+    for provider in configured_providers():
+        if not _SETTINGS[CHANNEL_SETTING_KEYS[provider.channel]]:
+            results[provider.channel] = DeliveryResult.skipped(provider.channel, provider.label, "Channel is disabled.")
+            continue
+        try:
+            result = provider.send(payload)
+        except Exception as exc:
+            result = DeliveryResult.failed(provider.channel, provider.label, str(exc))
+        results[provider.channel] = result
+        if result.status == "failed":
+            logger.error("Notification delivery failed for %s: %s", provider.channel, result.detail)
+        elif result.status == "not_configured":
+            logger.warning("Notification delivery skipped for %s: provider is not configured.", provider.channel)
+
+    return {channel: result.to_record() for channel, result in results.items()}
+
+
+def configured_providers() -> list[NotificationProvider]:
+    return [
+        EmailNotificationProvider(),
+        TelegramNotificationProvider(),
+        WhatsAppNotificationProvider(),
+        DiscordNotificationProvider(),
+    ]
 
 
 def _settings_read() -> NotificationSettingsRead:
+    providers = {provider.channel: provider for provider in configured_providers()}
     return NotificationSettingsRead(
         **_SETTINGS,
         channels=[
             NotificationChannelRead(
                 **channel,
                 enabled=bool(_SETTINGS[f"{channel['key']}_enabled"]),
+                configured=True if channel["key"] == "in_app" else providers[channel["key"]].is_configured,
             )
             for channel in SUPPORTED_CHANNELS
         ],

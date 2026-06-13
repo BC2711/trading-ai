@@ -5,6 +5,7 @@ export type NotificationChannel = {
   key: "in_app" | "email" | "telegram" | "whatsapp" | "discord";
   label: string;
   enabled: boolean;
+  configured: boolean;
   placeholder: boolean;
 };
 

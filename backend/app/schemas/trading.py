@@ -918,6 +918,8 @@ class NotificationCreate(BaseModel):
 class NotificationRead(NotificationCreate):
     id: int
     is_read: bool
+    delivery_status: dict = Field(default_factory=dict)
+    delivery_attempted_at: datetime | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

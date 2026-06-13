@@ -659,6 +659,8 @@ export type NotificationResource = {
   message: string;
   severity: "info" | "warning" | "error";
   is_read: boolean;
+  delivery_status: Record<string, Record<string, string>>;
+  delivery_attempted_at: string | null;
   created_at: string;
 };
 

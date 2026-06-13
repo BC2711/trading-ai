@@ -803,6 +803,8 @@ class Notification(Base):
     message: Mapped[str] = mapped_column(String(800))
     severity: Mapped[str] = mapped_column(String(16), default="info", index=True)
     is_read: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    delivery_status: Mapped[dict] = mapped_column(JSON, default=dict)
+    delivery_attempted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
 
 

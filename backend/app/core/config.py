@@ -58,6 +58,22 @@ class Settings(BaseSettings):
     reddit_user_agent: str = "trading-ai/0.1"
     x_bearer_token: str | None = None
     x_recent_search_url: str = "https://api.x.com/2/tweets/search/recent"
+    notification_request_timeout_seconds: float = 8.0
+    notification_email_smtp_host: str | None = None
+    notification_email_smtp_port: int = 587
+    notification_email_use_tls: bool = True
+    notification_email_username: str | None = None
+    notification_email_password: str | None = None
+    notification_email_from: str | None = None
+    notification_email_to: list[str] = []
+    telegram_bot_token: str | None = None
+    telegram_chat_id: str | None = None
+    telegram_api_base_url: str = "https://api.telegram.org"
+    whatsapp_access_token: str | None = None
+    whatsapp_phone_number_id: str | None = None
+    whatsapp_to_number: str | None = None
+    whatsapp_api_base_url: str = "https://graph.facebook.com/v20.0"
+    discord_webhook_url: str | None = None
 
     # Websocket Settings
     ws_ping_interval: int = 20

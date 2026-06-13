@@ -183,7 +183,6 @@ from app.services.admin import (
     clear_login_attempts,
     consume_refresh_token,
     create_credential,
-    create_notification,
     create_role,
     delete_credential,
     delete_role as delete_rbac_role,
@@ -243,6 +242,7 @@ from app.services.risk.monte_carlo import get_monte_carlo_run, run_monte_carlo
 from app.services.scanner import get_scanner_results, run_scanner, scanner_signals
 from app.services.sentiment import analyze_sentiment, get_market_sentiment, get_symbol_sentiment
 from app.services.notifications import (
+    create_and_dispatch_notification,
     get_notification_settings,
     mark_notifications_read,
     update_notification_settings,
@@ -2702,7 +2702,7 @@ def post_notification(
     db: Session = Depends(get_db),
     _user: User = Depends(require_permission("view_logs")),
 ) -> NotificationRead:
-    return NotificationRead.model_validate(create_notification(db, payload))
+    return NotificationRead.model_validate(create_and_dispatch_notification(db, payload))
 
 
 @router.post("/notifications/mark-read", response_model=NotificationMarkReadResponse, tags=["notifications"])

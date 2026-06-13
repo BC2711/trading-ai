@@ -105,6 +105,31 @@ def test_schema_compatibility_adds_missing_market_candle_columns(tmp_path) -> No
     assert "spread" in columns
 
 
+def test_schema_compatibility_adds_missing_notification_delivery_columns(tmp_path) -> None:
+    database_path = tmp_path / "legacy_notifications.sqlite"
+    engine = create_engine(f"sqlite:///{database_path.as_posix()}")
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                CREATE TABLE notifications (
+                    id INTEGER PRIMARY KEY,
+                    title VARCHAR(180) NOT NULL,
+                    message VARCHAR(800) NOT NULL,
+                    severity VARCHAR(16) NOT NULL,
+                    is_read BOOLEAN NOT NULL,
+                    created_at DATETIME NOT NULL
+                )
+                """
+            )
+        )
+
+    ensure_schema_compatibility(engine)
+
+    columns = {column["name"] for column in inspect(engine).get_columns("notifications")}
+    assert {"delivery_status", "delivery_attempted_at"}.issubset(columns)
+
+
 def test_production_requires_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.delenv("API_KEY", raising=False)
