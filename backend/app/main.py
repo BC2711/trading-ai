@@ -9,8 +9,8 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse, Response
 from starlette.requests import Request
 
-from app.api.routes import (
-    router as api_router,
+from app.api.routes import domain_routers
+from app.api.legacy_routes import (
     websocket_notifications,
     websocket_orders,
     websocket_portfolio,
@@ -124,7 +124,8 @@ async def require_api_key(
     return await call_next(request)
 
 
-app.include_router(api_router, prefix=settings.api_prefix)
+for domain_router in domain_routers:
+    app.include_router(domain_router, prefix=settings.api_prefix)
 app.include_router(monitoring_router, prefix=f"{settings.api_prefix}/monitoring")
 app.add_api_websocket_route("/ws/prices", websocket_prices)
 app.add_api_websocket_route("/ws/signals", websocket_signals)

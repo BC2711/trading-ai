@@ -12,8 +12,17 @@ from app.schemas.monitoring import (
     WorkerStatusResponse,
 )
 from app.services.monitoring import get_brokers, get_health, get_metrics, get_system, get_workers
+from app.api.domain_router import build_domain_router
 
 router = APIRouter(tags=["monitoring"])
+
+legacy_router = build_domain_router(
+    [
+        "/health",
+        "/logs",
+        "/indicators/preview",
+    ]
+)
 
 
 @router.get("/health", response_model=MonitoringHealthResponse)
