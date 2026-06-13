@@ -1,0 +1,28 @@
+# Python cache and test output
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local environments
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+
+# Runtime data
+*.sqlite
+*.sqlite3
+*.db
+*.log
+.tmp/
+celerybeat-schedule*
+
+# Local model artifacts
+/models/
+*.gguf
+*.pkl
+*.joblib

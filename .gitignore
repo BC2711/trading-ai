@@ -1,24 +1,41 @@
+# Environment
+.env
+.env.*
+!.env.example
+!.env.*.example
+
 # Python
 __pycache__/
 *.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
 .venv/
 venv/
 backend/venv/
-.env
-.env.local
-.env.*.local
+
+# Runtime databases and temp files
 *.sqlite
 *.sqlite3
+*.db
+.tmp/
+backend/.tmp/
 
-# ML Artifacts
-backend/models/*.gguf
-backend/models/*.pkl
-backend/models/*.joblib
+# ML/model artifacts
+backend/models/
+backend/.tmp/models/
+*.gguf
+*.pkl
+*.joblib
 
-# Node
+# Node/frontend
 node_modules/
+frontend/node_modules/
 dist/
+frontend/dist/
 *.tsbuildinfo
+coverage/
 
 # Logs
 *.log
