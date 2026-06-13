@@ -1,10 +1,14 @@
+import hashlib
 import re
+import time
+from datetime import datetime, timezone
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.core.security import encrypt_secret, hash_password, verify_password, decode_refresh_token
-from app.models import AIModelMetadata, ApiCredential, Notification, Permission, Role, RolePermission, SystemLog, User, UserRole
+from app.core.config import settings
+from app.core.security import create_refresh_token, decode_refresh_token, encrypt_secret, hash_password, verify_password
+from app.models import AIModelMetadata, ApiCredential, Notification, Permission, RefreshToken, Role, RolePermission, SystemLog, User, UserRole
 from app.schemas.trading import ApiCredentialCreate, ApiCredentialUpdate, NotificationCreate, RoleCreate, RoleUpdate, UserCreate, UserUpdate
 from app.services.audit import record_event
 
@@ -137,6 +141,146 @@ TRADER_PERMISSIONS = [
     "notifications:view",
     "logs:view",
 ]
+
+_LOGIN_ATTEMPTS: dict[str, list[float]] = {}
+_LOGIN_LOCKOUTS: dict[str, float] = {}
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def as_utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+
+
+def hash_refresh_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def login_throttle_key(email: str, ip_address: str | None) -> str:
+    return f"{email.strip().lower()}:{ip_address or 'unknown'}"
+
+
+def login_retry_after_seconds(key: str) -> int | None:
+    now = time.monotonic()
+    locked_until = _LOGIN_LOCKOUTS.get(key)
+    if locked_until is None:
+        return None
+    if locked_until <= now:
+        _LOGIN_LOCKOUTS.pop(key, None)
+        return None
+    return max(1, int(locked_until - now))
+
+
+def record_failed_login_attempt(key: str) -> int | None:
+    now = time.monotonic()
+    window_start = now - settings.login_throttle_window_seconds
+    attempts = [timestamp for timestamp in _LOGIN_ATTEMPTS.get(key, []) if timestamp >= window_start]
+    attempts.append(now)
+    _LOGIN_ATTEMPTS[key] = attempts
+    if len(attempts) >= settings.login_throttle_max_attempts:
+        locked_until = now + settings.login_throttle_lockout_seconds
+        _LOGIN_LOCKOUTS[key] = locked_until
+        _LOGIN_ATTEMPTS[key] = []
+        return settings.login_throttle_lockout_seconds
+    return None
+
+
+def clear_login_attempts(key: str) -> None:
+    _LOGIN_ATTEMPTS.pop(key, None)
+    _LOGIN_LOCKOUTS.pop(key, None)
+
+
+def clear_login_throttles() -> None:
+    _LOGIN_ATTEMPTS.clear()
+    _LOGIN_LOCKOUTS.clear()
+
+
+def store_refresh_token(db: Session, user: User, token: str) -> RefreshToken:
+    payload = decode_refresh_token(token)
+    if not payload or not payload.get("jti") or not payload.get("exp"):
+        raise ValueError("Invalid refresh token")
+
+    refresh_token = RefreshToken(
+        user_id=user.id,
+        jti=str(payload["jti"]),
+        token_hash=hash_refresh_token(token),
+        expires_at=datetime.fromtimestamp(int(payload["exp"]), tz=timezone.utc),
+    )
+    db.add(refresh_token)
+    db.commit()
+    db.refresh(refresh_token)
+    return refresh_token
+
+
+def issue_refresh_token(db: Session, user: User) -> str:
+    token = create_refresh_token(str(user.id), user.role)
+    store_refresh_token(db, user, token)
+    return token
+
+
+def consume_refresh_token(db: Session, token: str) -> User | None:
+    payload = decode_refresh_token(token)
+    if not payload or not payload.get("jti"):
+        return None
+
+    token_record = db.scalar(
+        select(RefreshToken).where(
+            RefreshToken.jti == str(payload["jti"]),
+            RefreshToken.token_hash == hash_refresh_token(token),
+        )
+    )
+    now = utc_now()
+    if token_record is None or token_record.revoked_at is not None:
+        return None
+    if as_utc(token_record.expires_at) <= now:
+        token_record.revoked_at = now
+        db.commit()
+        return None
+
+    user = db.get(User, int(payload["sub"]))
+    if user is None or not user.is_active or user.id != token_record.user_id:
+        token_record.revoked_at = now
+        db.commit()
+        return None
+
+    token_record.last_used_at = now
+    token_record.revoked_at = now
+    db.commit()
+    return user
+
+
+def revoke_refresh_token(db: Session, token: str, user_id: int | None = None) -> bool:
+    payload = decode_refresh_token(token)
+    token_record = db.scalar(select(RefreshToken).where(RefreshToken.token_hash == hash_refresh_token(token)))
+    if token_record is None:
+        return False
+    if payload and payload.get("jti") and token_record.jti != str(payload["jti"]):
+        return False
+    if user_id is not None and token_record.user_id != user_id:
+        return False
+    if token_record.revoked_at is None:
+        token_record.revoked_at = utc_now()
+        db.commit()
+    return True
+
+
+def revoke_user_refresh_tokens(db: Session, user_id: int) -> int:
+    now = utc_now()
+    active_tokens = list(
+        db.scalars(
+            select(RefreshToken).where(
+                RefreshToken.user_id == user_id,
+                RefreshToken.revoked_at.is_(None),
+            )
+        ).all()
+    )
+    for token in active_tokens:
+        token.revoked_at = now
+    if active_tokens:
+        db.commit()
+    return len(active_tokens)
 
 
 def role_slug(value: str) -> str:
@@ -323,21 +467,6 @@ def assign_roles_to_user(db: Session, user_id: int, role_ids: list[int]) -> User
     db.commit()
     db.refresh(user)
     return user
-
-def revoke_refresh_token(db: Session, token: str) -> bool:
-    """
-    In production, this should write to a 'RevokedToken' table or Redis blacklist.
-    """
-    payload = decode_refresh_token(token)
-    if not payload:
-        return False
-    
-    # Placeholder for actual persistence logic
-    # db.add(RevokedToken(jti=payload["jti"]))
-    # db.commit()
-    
-    return True
-
 
 def register_user(db: Session, payload: UserCreate) -> User:
     email = payload.email.lower()

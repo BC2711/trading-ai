@@ -623,6 +623,24 @@ class AuditEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
 
 
+class SentimentItem(Base):
+    __tablename__ = "sentiment_items"
+    __table_args__ = (
+        UniqueConstraint("provider", "symbol", "headline", "observed_at", name="uq_sentiment_provider_symbol_headline_time"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    provider: Mapped[str] = mapped_column(String(48), index=True)
+    source: Mapped[str] = mapped_column(String(160), index=True)
+    symbol: Mapped[str] = mapped_column(String(24), index=True)
+    related_asset: Mapped[str] = mapped_column(String(24), index=True)
+    headline: Mapped[str] = mapped_column(String(1000))
+    sentiment_score: Mapped[float] = mapped_column(Float, index=True)
+    confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+
+
 class MonteCarloRun(Base):
     __tablename__ = "monte_carlo_runs"
 
@@ -661,6 +679,25 @@ class User(Base):
         back_populates="user_ref",
         cascade="all, delete-orphan",
     )
+    refresh_tokens: Mapped[list["RefreshToken"]] = relationship(
+        back_populates="user_ref",
+        cascade="all, delete-orphan",
+    )
+
+
+class RefreshToken(Base):
+    __tablename__ = "refresh_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    jti: Mapped[str] = mapped_column(String(96), unique=True, index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    user_ref: Mapped[User] = relationship(back_populates="refresh_tokens")
 
 
 class Role(Base):

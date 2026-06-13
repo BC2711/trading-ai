@@ -61,6 +61,8 @@ Important backend variables:
 - `MARKET_SYNC_SYMBOLS`, `MARKET_SYNC_TIMEFRAME`, `MARKET_SYNC_LIMIT`: historical market sync defaults.
 - `AI_PROVIDER`: `rules`, `openai`, `ollama`, or `local-llama`.
 - `OPENAI_API_KEY`: optional placeholder only; leave empty unless using OpenAI.
+- `SENTIMENT_PROVIDERS`: enabled sentiment adapters, for example `["newsapi","cryptopanic","reddit","x"]`.
+- `NEWS_API_KEY`, `CRYPTOPANIC_API_KEY`, `REDDIT_BEARER_TOKEN`, `X_BEARER_TOKEN`: optional provider credentials. Missing keys skip that provider and the backend falls back to deterministic local sentiment if no provider returns data.
 - `SENTRY_DSN` and `VITE_SENTRY_DSN`: optional monitoring DSNs.
 
 Important frontend variables:
@@ -93,19 +95,21 @@ The public reverse proxy is configured in [nginx/nginx.conf](nginx/nginx.conf). 
 
 ### Database Migrations
 
-**Important:** In production environments, `Base.metadata.create_all` is disabled. All schema changes must be applied via Alembic migrations to ensure auditability and data safety.
+**Important:** In production environments, `Base.metadata.create_all` and startup schema repair are disabled. All schema changes must be applied via Alembic migrations to ensure auditability and data safety. The backend expects the database to already be migrated before it starts serving traffic.
 
-Run migrations before accepting production traffic:
+Run PostgreSQL, apply migrations, then start the application stack:
 
 ```bash
-docker compose run --rm backend alembic upgrade head
+docker compose --env-file .env up -d postgres
+docker compose --env-file .env run --rm backend alembic upgrade head
+docker compose --env-file .env up -d --build
 ```
 
 To inspect migration state:
 
 ```bash
-docker compose run --rm backend alembic current
-docker compose run --rm backend alembic history
+docker compose --env-file .env run --rm backend alembic current
+docker compose --env-file .env run --rm backend alembic history
 ```
 
 ### Celery Commands
@@ -136,7 +140,7 @@ Build and start the full production stack:
 docker compose --env-file .env up -d --build
 ```
 
-Run migrations:
+Run migrations before starting or upgrading backend containers:
 
 ```bash
 docker compose --env-file .env run --rm backend alembic upgrade head
@@ -181,6 +185,8 @@ python -m venv .venv
 pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
+
+Local development keeps `DEVELOPMENT_AUTO_CREATE_SCHEMA=true` and `DEVELOPMENT_SCHEMA_REPAIR_ENABLED=true` by default, so a new local SQLite/Postgres database can start without manual migration setup. For production-like local testing, run Alembic explicitly and set both development schema helper flags to `false`.
 
 Run frontend locally:
 
@@ -265,4 +271,17 @@ Core endpoints:
 
 Implementation modules:
 
-- `MarketDat
+- `app.services.market_data`: provider sync, warehouse, validation, and websocket ingestion.
+- `app.services.sentiment`: provider-based news and social sentiment ingestion.
+
+## Sentiment Providers
+
+The sentiment service uses provider adapters for News API, CryptoPanic, Reddit, and X/Twitter. Provider records are stored with provider name, source, symbol, related asset, timestamp, confidence, headline, and sentiment score. The API response remains compatible with the frontend sentiment table.
+
+Configure provider credentials through environment variables and run migrations before production startup:
+
+```bash
+docker compose --env-file .env run --rm backend alembic upgrade head
+```
+
+If provider keys are missing or providers fail, the backend returns fallback sentiment items so local development and dashboards continue to work.

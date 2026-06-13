@@ -4,6 +4,7 @@ import { AppLayout } from "./components/layout/AppLayout";
 import { Card } from "./components/ui/Card";
 import { LoadingSpinner } from "./components/ui/LoadingSpinner";
 import { useRealtimeStreams } from "./hooks/useRealtimeStreams";
+import { ensureActiveSession, hasStoredAccessToken, onAuthExpired } from "./services/api";
 import {
   AiModelsPage,
   ApiKeysPage,
@@ -18,6 +19,8 @@ import {
   TradeHistoryPage,
   UsersPage
 } from "./pages/ProductionPages";
+
+type AuthStatus = "checking" | "authenticated" | "unauthenticated";
 
 const DashboardPage = lazy(() =>
   import("./pages/DashboardPage").then((module) => ({ default: module.DashboardPage }))
@@ -85,7 +88,8 @@ const ActivityPage = lazy(() =>
 
 export function App() {
   const [route, setRoute] = useState(getRoute());
-  const [authenticated, setAuthenticated] = useState(() => Boolean(localStorage.getItem("trading_ai_token")));
+  const [authStatus, setAuthStatus] = useState<AuthStatus>(() => (hasStoredAccessToken() ? "authenticated" : "checking"));
+  const authenticated = authStatus === "authenticated";
   useRealtimeStreams(authenticated);
 
   useEffect(() => {
@@ -94,8 +98,42 @@ export function App() {
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
 
+  useEffect(() => {
+    let mounted = true;
+
+    ensureActiveSession().then((active) => {
+      if (mounted) {
+        setAuthStatus(active ? "authenticated" : "unauthenticated");
+      }
+    });
+
+    const unsubscribe = onAuthExpired(() => {
+      if (mounted) {
+        setAuthStatus("unauthenticated");
+      }
+    });
+
+    return () => {
+      mounted = false;
+      unsubscribe();
+    };
+  }, []);
+
+  if (authStatus === "checking") {
+    return <AuthFallback />;
+  }
+
   if (!authenticated) {
-    return <LoginPage onAuthenticated={() => setAuthenticated(true)} />;
+    return (
+      <LoginPage
+        onAuthenticated={() => {
+          if (window.location.hash === "#/login") {
+            window.location.hash = "#/overview";
+          }
+          setAuthStatus("authenticated");
+        }}
+      />
+    );
   }
 
   return (
@@ -104,6 +142,17 @@ export function App() {
         {renderRoute(route)}
       </Suspense>
     </AppLayout>
+  );
+}
+
+function AuthFallback() {
+  return (
+    <main className="grid min-h-screen place-items-center bg-slate-950 p-4 text-white">
+      <div className="text-center">
+        <LoadingSpinner className="mx-auto mb-4 size-10" />
+        <p className="text-sm font-bold text-white/60">Checking session</p>
+      </div>
+    </main>
   );
 }
 

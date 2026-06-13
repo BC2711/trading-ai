@@ -141,7 +141,7 @@ from app.schemas.strategy_builder import (
 from app.schemas.scanner import ScannerRead, ScannerRunRequest
 from app.schemas.sentiment import SentimentAnalyzeRequest, SentimentResponse
 from app.core.config import settings
-from app.core.security import create_access_token, create_refresh_token, decode_jwt, decode_refresh_token
+from app.core.security import create_access_token, decode_jwt
 from app.db.auth import get_current_user as require_current_user, require_permission
 from app.services.indicators.technical import moving_average_snapshot
 from app.models import User
@@ -180,6 +180,8 @@ from app.services.analytics import (
 from app.services.admin import (
     assign_roles_to_user,
     authenticate_user,
+    clear_login_attempts,
+    consume_refresh_token,
     create_credential,
     create_notification,
     create_role,
@@ -192,9 +194,15 @@ from app.services.admin import (
     list_roles,
     list_system_logs,
     list_users,
+    issue_refresh_token,
+    login_retry_after_seconds,
+    login_throttle_key,
     mark_notification_read,
     permissions_for_user,
+    record_failed_login_attempt,
     register_user,
+    revoke_refresh_token,
+    revoke_user_refresh_tokens,
     roles_for_user,
     update_credential,
     update_role,
@@ -590,6 +598,15 @@ def post_register(payload: UserCreate, db: Session = Depends(get_db)) -> UserRea
 
 @router.post("/auth/login", response_model=TokenResponse, tags=["auth"])
 def post_login(payload: UserLogin, request: Request, db: Session = Depends(get_db)) -> TokenResponse:
+    throttle_key = login_throttle_key(payload.email, client_ip(request))
+    retry_after = login_retry_after_seconds(throttle_key)
+    if retry_after is not None:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many failed login attempts. Try again later.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
     user = authenticate_user(db, payload.email, payload.password)
     if user is None:
         audit_route_event(
@@ -602,7 +619,15 @@ def post_login(payload: UserLogin, request: Request, db: Session = Depends(get_d
             severity="warning",
             details={"email": payload.email.lower()},
         )
+        retry_after = record_failed_login_attempt(throttle_key)
+        if retry_after is not None:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many failed login attempts. Try again later.",
+                headers={"Retry-After": str(retry_after)},
+            )
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    clear_login_attempts(throttle_key)
     audit_route_event(
         db,
         request,
@@ -614,7 +639,7 @@ def post_login(payload: UserLogin, request: Request, db: Session = Depends(get_d
     )
     return TokenResponse(
         access_token=create_access_token(str(user.id), user.role),
-        refresh_token=create_refresh_token(str(user.id), user.role),
+        refresh_token=issue_refresh_token(db, user),
         token_type="bearer",
     )
 
@@ -622,9 +647,14 @@ def post_login(payload: UserLogin, request: Request, db: Session = Depends(get_d
 @router.post("/auth/logout", tags=["auth"])
 def post_logout(
     request: Request,
+    payload: RefreshTokenRequest | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(require_current_user),
 ) -> dict[str, bool]:
+    if payload and payload.refresh_token:
+        revoke_refresh_token(db, payload.refresh_token, user.id)
+    else:
+        revoke_user_refresh_tokens(db, user.id)
     audit_route_event(
         db,
         request,
@@ -639,17 +669,13 @@ def post_logout(
 
 @router.post("/auth/refresh", response_model=TokenResponse, tags=["auth"])
 def post_refresh_token(payload: RefreshTokenRequest, db: Session = Depends(get_db)) -> TokenResponse:
-    token_payload = decode_refresh_token(payload.refresh_token)
-    if not token_payload:
+    user = consume_refresh_token(db, payload.refresh_token)
+    if user is None:
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
-
-    user = db.get(User, int(token_payload["sub"]))
-    if user is None or not user.is_active:
-        raise HTTPException(status_code=401, detail="Inactive or unknown user")
 
     return TokenResponse(
         access_token=create_access_token(str(user.id), user.role),
-        refresh_token=create_refresh_token(str(user.id), user.role),
+        refresh_token=issue_refresh_token(db, user),
         token_type="bearer",
     )
 

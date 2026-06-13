@@ -12,6 +12,11 @@ class Settings(BaseSettings):
     jwt_refresh_secret: str = "change-me-refresh-token-secret"
     access_token_expire_minutes: int = 120
     refresh_token_expire_days: int = 7
+    login_throttle_max_attempts: int = 5
+    login_throttle_window_seconds: int = 300
+    login_throttle_lockout_seconds: int = 300
+    development_auto_create_schema: bool = True
+    development_schema_repair_enabled: bool = True
     credential_encryption_secret: str = "change-me-in-production"
     allowed_hosts: list[str] = ["localhost", "127.0.0.1", "testserver", "backend"]
     cors_origins: list[str] = [
@@ -40,6 +45,19 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3"
     local_model_path: str | None = None
+    sentiment_providers: list[str] = ["newsapi", "cryptopanic", "reddit", "x"]
+    sentiment_request_timeout_seconds: float = 8.0
+    sentiment_items_per_provider: int = 10
+    news_api_key: str | None = None
+    news_api_base_url: str = "https://newsapi.org/v2/everything"
+    cryptopanic_api_key: str | None = None
+    cryptopanic_base_url: str = "https://cryptopanic.com/api/v1/posts/"
+    reddit_bearer_token: str | None = None
+    reddit_api_base_url: str = "https://www.reddit.com"
+    reddit_subreddit: str = "CryptoCurrency"
+    reddit_user_agent: str = "trading-ai/0.1"
+    x_bearer_token: str | None = None
+    x_recent_search_url: str = "https://api.x.com/2/tweets/search/recent"
 
     # Websocket Settings
     ws_ping_interval: int = 20

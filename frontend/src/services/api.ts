@@ -1,22 +1,60 @@
 import axios from "axios";
+import type { AxiosError, InternalAxiosRequestConfig } from "axios";
 
 import type { Signal } from "../types/signal";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 const API_KEY = import.meta.env.VITE_API_KEY;
+const ACCESS_TOKEN_KEY = "trading_ai_token";
+const REFRESH_TOKEN_KEY = "trading_ai_refresh_token";
+const AUTH_EXPIRED_EVENT = "trading-ai:auth-expired";
+
+type RetriableRequestConfig = InternalAxiosRequestConfig & {
+  _retry?: boolean;
+  skipAuthRefresh?: boolean;
+};
+
+let refreshPromise: Promise<TokenResponse> | null = null;
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
   headers: API_KEY ? { "X-API-Key": API_KEY } : undefined
 });
 
+const authClient = axios.create({
+  baseURL: API_BASE_URL,
+  headers: API_KEY ? { "X-API-Key": API_KEY } : undefined
+});
+
 apiClient.interceptors.request.use((config) => {
-  const token = localStorage.getItem("trading_ai_token");
+  const token = localStorage.getItem(ACCESS_TOKEN_KEY);
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
+
+apiClient.interceptors.response.use(
+  (response) => response,
+  async (error: AxiosError) => {
+    const originalRequest = error.config as RetriableRequestConfig | undefined;
+
+    if (error.response?.status !== 401 || !originalRequest || originalRequest._retry || originalRequest.skipAuthRefresh || isAuthRequest(originalRequest.url)) {
+      return Promise.reject(error);
+    }
+
+    originalRequest._retry = true;
+
+    try {
+      const tokenResponse = await refreshAccessTokenOnce();
+      originalRequest.headers.Authorization = `Bearer ${tokenResponse.access_token}`;
+      return apiClient(originalRequest);
+    } catch (refreshError) {
+      expireAuthSession();
+      return Promise.reject(refreshError);
+    }
+  }
+);
 
 export type LoginRequest = {
   email: string;
@@ -37,29 +75,110 @@ export type TokenResponse = {
 };
 
 export async function login(payload: LoginRequest): Promise<TokenResponse> {
-  const response = await apiClient.post<TokenResponse>("/api/auth/login", payload);
-  localStorage.setItem("trading_ai_token", response.data.access_token);
-  if (response.data.refresh_token) {
-    localStorage.setItem("trading_ai_refresh_token", response.data.refresh_token);
-  }
+  const response = await authClient.post<TokenResponse>("/api/auth/login", payload);
+  storeTokenResponse(response.data);
   return response.data;
+}
+
+export async function ensureActiveSession(): Promise<boolean> {
+  const accessToken = localStorage.getItem(ACCESS_TOKEN_KEY);
+  if (!accessToken) {
+    clearAuthStorage();
+    return false;
+  }
+
+  if (!isAccessTokenExpired(accessToken)) {
+    return true;
+  }
+
+  try {
+    await refreshAccessTokenOnce();
+    return true;
+  } catch {
+    expireAuthSession();
+    return false;
+  }
+}
+
+export function hasStoredAccessToken(): boolean {
+  const token = localStorage.getItem(ACCESS_TOKEN_KEY);
+  return Boolean(token && !isAccessTokenExpired(token));
+}
+
+export function onAuthExpired(callback: () => void): () => void {
+  window.addEventListener(AUTH_EXPIRED_EVENT, callback);
+  return () => window.removeEventListener(AUTH_EXPIRED_EVENT, callback);
+}
+
+function storeTokenResponse(tokenResponse: TokenResponse) {
+  localStorage.setItem(ACCESS_TOKEN_KEY, tokenResponse.access_token);
+  apiClient.defaults.headers.common.Authorization = `Bearer ${tokenResponse.access_token}`;
+  if (tokenResponse.refresh_token) {
+    localStorage.setItem(REFRESH_TOKEN_KEY, tokenResponse.refresh_token);
+  }
 }
 
 export async function refreshAccessToken(): Promise<TokenResponse> {
-  const refreshToken = localStorage.getItem("trading_ai_refresh_token");
+  const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
   if (!refreshToken) {
     throw new Error("Missing refresh token");
   }
-  const response = await apiClient.post<TokenResponse>("/api/auth/refresh", { refresh_token: refreshToken });
-  localStorage.setItem("trading_ai_token", response.data.access_token);
-  if (response.data.refresh_token) {
-    localStorage.setItem("trading_ai_refresh_token", response.data.refresh_token);
-  }
+
+  const response = await authClient.post<TokenResponse>("/api/auth/refresh", { refresh_token: refreshToken });
+  storeTokenResponse(response.data);
   return response.data;
 }
 
+function refreshAccessTokenOnce(): Promise<TokenResponse> {
+  refreshPromise ??= refreshAccessToken().finally(() => {
+    refreshPromise = null;
+  });
+  return refreshPromise;
+}
+
+function clearAuthStorage() {
+  localStorage.removeItem(ACCESS_TOKEN_KEY);
+  localStorage.removeItem(REFRESH_TOKEN_KEY);
+  delete apiClient.defaults.headers.common.Authorization;
+}
+
+function expireAuthSession() {
+  clearAuthStorage();
+  if (window.location.hash !== "#/login") {
+    window.location.hash = "#/login";
+  }
+  window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+}
+
+function isAuthRequest(url?: string): boolean {
+  return Boolean(url?.includes("/api/auth/login") || url?.includes("/api/auth/register") || url?.includes("/api/auth/refresh"));
+}
+
+function isAccessTokenExpired(token: string): boolean {
+  const payload = parseJwtPayload(token);
+  if (!payload?.exp) {
+    return true;
+  }
+  return payload.exp * 1000 <= Date.now() + 5000;
+}
+
+function parseJwtPayload(token: string): { exp?: number } | null {
+  const [, payload] = token.split(".");
+  if (!payload) {
+    return null;
+  }
+
+  try {
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), "=");
+    return JSON.parse(window.atob(padded)) as { exp?: number };
+  } catch {
+    return null;
+  }
+}
+
 export async function register(payload: RegisterRequest): Promise<UserResource> {
-  const response = await apiClient.post<UserResource>("/api/auth/register", payload);
+  const response = await authClient.post<UserResource>("/api/auth/register", payload);
   return response.data;
 }
 
@@ -69,8 +188,7 @@ export async function logout() {
   } catch {
     // Local logout should still succeed if the token is already expired or the network is unavailable.
   }
-  localStorage.removeItem("trading_ai_token");
-  localStorage.removeItem("trading_ai_refresh_token");
+  clearAuthStorage();
 }
 
 export async function fetchSignals(): Promise<Signal[]> {

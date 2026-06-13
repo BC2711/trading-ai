@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 test_db_path = Path(".tmp/test_app.sqlite")
@@ -9,8 +10,10 @@ os.environ["DATABASE_URL"] = f"sqlite:///{test_db_path.as_posix()}"
 from fastapi.testclient import TestClient
 
 from app.core.config import settings
+from app.core.security import decode_jwt, encode_jwt
 from app.main import app
 from app.services.ai.models import ModelService, is_package_available
+from app.services.admin import clear_login_throttles
 
 
 def auth_headers(client: TestClient, email: str = "admin@example.com") -> dict[str, str]:
@@ -134,6 +137,121 @@ def test_refresh_token_renews_access_token() -> None:
     assert refresh_response.status_code == 200
     assert refresh_response.json()["access_token"]
     assert refresh_response.json()["refresh_token"]
+
+
+def test_refresh_token_rotation_revokes_previous_token() -> None:
+    with TestClient(app) as client:
+        auth_headers(client, "rotation-admin@example.com")
+        login_response = client.post(
+            "/api/auth/login",
+            json={"email": "rotation-admin@example.com", "password": "strong-password"},
+        )
+        old_refresh_token = login_response.json()["refresh_token"]
+        refresh_response = client.post("/api/auth/refresh", json={"refresh_token": old_refresh_token})
+        replay_response = client.post("/api/auth/refresh", json={"refresh_token": old_refresh_token})
+
+    assert login_response.status_code == 200
+    assert refresh_response.status_code == 200
+    assert refresh_response.json()["refresh_token"] != old_refresh_token
+    assert replay_response.status_code == 401
+
+
+def test_logout_revokes_active_refresh_token() -> None:
+    with TestClient(app) as client:
+        headers = auth_headers(client, "logout-admin@example.com")
+        login_response = client.post(
+            "/api/auth/login",
+            json={"email": "logout-admin@example.com", "password": "strong-password"},
+        )
+        refresh_token = login_response.json()["refresh_token"]
+        logout_response = client.post("/api/auth/logout", headers={"Authorization": headers["Authorization"]})
+        refresh_response = client.post("/api/auth/refresh", json={"refresh_token": refresh_token})
+
+    assert login_response.status_code == 200
+    assert logout_response.status_code == 200
+    assert logout_response.json()["logged_out"] is True
+    assert refresh_response.status_code == 401
+
+
+def test_expired_access_token_is_rejected() -> None:
+    with TestClient(app) as client:
+        auth_headers(client, "expired-access@example.com")
+        login_response = client.post(
+            "/api/auth/login",
+            json={"email": "expired-access@example.com", "password": "strong-password"},
+        )
+        payload = decode_jwt(login_response.json()["access_token"])
+        assert payload is not None
+        expired_token = encode_jwt(
+            {
+                "sub": payload["sub"],
+                "role": payload["role"],
+                "typ": "access",
+                "exp": int((datetime.now(timezone.utc) - timedelta(minutes=1)).timestamp()),
+            }
+        )
+        me_response = client.get("/api/me", headers={"Authorization": f"Bearer {expired_token}"})
+
+    assert login_response.status_code == 200
+    assert me_response.status_code == 401
+
+
+def test_expired_refresh_token_is_rejected() -> None:
+    expired_refresh_token = encode_jwt(
+        {
+            "sub": "1",
+            "role": "admin",
+            "typ": "refresh",
+            "jti": "expired-refresh-test",
+            "exp": int((datetime.now(timezone.utc) - timedelta(minutes=1)).timestamp()),
+        },
+        secret=settings.jwt_refresh_secret,
+    )
+
+    with TestClient(app) as client:
+        response = client.post("/api/auth/refresh", json={"refresh_token": expired_refresh_token})
+
+    assert response.status_code == 401
+
+
+def test_failed_login_attempts_are_throttled() -> None:
+    original_max_attempts = settings.login_throttle_max_attempts
+    original_lockout_seconds = settings.login_throttle_lockout_seconds
+    original_window_seconds = settings.login_throttle_window_seconds
+    clear_login_throttles()
+    settings.login_throttle_max_attempts = 3
+    settings.login_throttle_lockout_seconds = 60
+    settings.login_throttle_window_seconds = 300
+    try:
+        with TestClient(app) as client:
+            auth_headers(client, "throttled-admin@example.com")
+            first_response = client.post(
+                "/api/auth/login",
+                json={"email": "throttled-admin@example.com", "password": "wrong-password"},
+            )
+            second_response = client.post(
+                "/api/auth/login",
+                json={"email": "throttled-admin@example.com", "password": "wrong-password"},
+            )
+            throttled_response = client.post(
+                "/api/auth/login",
+                json={"email": "throttled-admin@example.com", "password": "wrong-password"},
+            )
+            locked_response = client.post(
+                "/api/auth/login",
+                json={"email": "throttled-admin@example.com", "password": "strong-password"},
+            )
+    finally:
+        settings.login_throttle_max_attempts = original_max_attempts
+        settings.login_throttle_lockout_seconds = original_lockout_seconds
+        settings.login_throttle_window_seconds = original_window_seconds
+        clear_login_throttles()
+
+    assert first_response.status_code == 401
+    assert second_response.status_code == 401
+    assert throttled_response.status_code == 429
+    assert locked_response.status_code == 429
+    assert "Retry-After" in locked_response.headers
 
 
 def test_later_public_registration_cannot_self_assign_admin() -> None:
