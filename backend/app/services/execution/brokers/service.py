@@ -18,6 +18,8 @@ from app.schemas.brokers import (
 from app.services.execution.brokers.base import BrokerAdapter, BrokerRuntimeState
 from app.services.execution.brokers.binance import BinanceAdapter
 from app.services.execution.brokers.placeholders import BybitAdapter, KuCoinAdapter, MetaTrader5Adapter, OKXAdapter
+from app.schemas.risk import RiskTradeValidationRequest
+from app.services.risk import validate_trade_request
 
 
 BROKER_STATES: dict[str, BrokerRuntimeState] = {}
@@ -104,6 +106,7 @@ class BrokerService:
 
     def place_order(self, broker: str, payload: BrokerOrderCreate) -> BrokerOrderRead:
         adapter = self.adapter(broker)
+        self._validate_order_risk(adapter, payload)
         order = adapter.place_order(payload)
         self._touch(adapter.name)
         return BrokerOrderRead(
@@ -128,6 +131,28 @@ class BrokerService:
             message="Order cancellation request accepted." if cancelled else "Order was not cancelled.",
         )
 
+    def close_position(self, broker: str, position_id: str) -> BrokerPositionRead:
+        adapter = self.adapter(broker)
+        position = next((item for item in adapter.get_positions() if item.id == position_id or item.symbol == position_id.upper()), None)
+        if position is None:
+            raise ValueError(f"Position not found: {position_id}")
+        price = position.mark_price or adapter.get_reference_price(position.symbol)
+        self._validate_order_risk(
+            adapter,
+            BrokerOrderCreate(symbol=position.symbol, side="sell", order_type="market", quantity=position.quantity, price=price),
+        )
+        closed_position = adapter.close_position(position.id)
+        self._touch(adapter.name)
+        return BrokerPositionRead(
+            id=closed_position.id,
+            symbol=closed_position.symbol,
+            side=closed_position.side,
+            quantity=closed_position.quantity,
+            entry_price=closed_position.entry_price,
+            mark_price=closed_position.mark_price,
+            unrealized_pnl=closed_position.unrealized_pnl,
+        )
+
     def status(self, broker: str) -> BrokerStatusRead:
         broker = self._normalize(broker)
         state = BROKER_STATES.get(broker, BrokerRuntimeState())
@@ -137,6 +162,7 @@ class BrokerService:
             status="connected" if state.connected else "disconnected",
             connected=state.connected,
             api_key_configured=self.has_credentials(broker),
+            mode=self.broker_mode(broker),
             last_sync_at=state.last_sync_at,
             message=state.message,
         )
@@ -158,16 +184,43 @@ class BrokerService:
         exchange_names = {broker}
         if broker == "mt5":
             exchange_names.add("metatrader5")
+        credential_mode = "live"
+        if broker == "binance" and self.broker_mode(broker) == "testnet":
+            credential_mode = "paper"
+            exchange_names.add("binance_testnet")
         return (
             self.db.scalar(
                 select(ApiCredential.id).where(
                     ApiCredential.exchange.in_(exchange_names),
-                    ApiCredential.mode == "live",
+                    ApiCredential.mode == credential_mode,
                     ApiCredential.is_active.is_(True),
                 )
             )
             is not None
         )
+
+    def broker_mode(self, broker: str) -> str:
+        normalized = self._normalize(broker)
+        if normalized == "binance":
+            from app.core.config import settings
+
+            return "live" if settings.binance_broker_mode.lower().strip() == "live" else "testnet"
+        return "testnet"
+
+    def _validate_order_risk(self, adapter: BrokerAdapter, payload: BrokerOrderCreate) -> None:
+        price = payload.price or adapter.get_reference_price(payload.symbol)
+        result = validate_trade_request(
+            self.db,
+            RiskTradeValidationRequest(
+                symbol=payload.symbol.upper(),
+                side=payload.side,
+                price=price,
+                quantity=payload.quantity,
+                execution_mode="live" if self.broker_mode(adapter.name) == "live" else "paper",
+            ),
+        )
+        if not result.approved:
+            raise ValueError(f"Risk validation rejected order: {result.message}")
 
     def _touch(self, broker: str) -> BrokerRuntimeState:
         state = BROKER_STATES.get(broker, BrokerRuntimeState())

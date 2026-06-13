@@ -9,6 +9,7 @@ class BrokerStatusRead(BaseModel):
     status: str
     connected: bool
     api_key_configured: bool
+    mode: str = "testnet"
     last_sync_at: datetime | None = None
     message: str
 

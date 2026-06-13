@@ -77,13 +77,76 @@ NOTIFICATION_COLUMNS = {
     },
 }
 
+AI_MODEL_COLUMNS = {
+    "champion": {
+        "postgresql": "BOOLEAN NOT NULL DEFAULT false",
+        "sqlite": "BOOLEAN NOT NULL DEFAULT 0",
+        "default": "BOOLEAN NOT NULL DEFAULT false",
+    },
+    "approval_status": {
+        "postgresql": "VARCHAR(24) NOT NULL DEFAULT 'pending'",
+        "sqlite": "VARCHAR(24) NOT NULL DEFAULT 'pending'",
+        "default": "VARCHAR(24) NOT NULL DEFAULT 'pending'",
+    },
+    "approved_at": {
+        "postgresql": "TIMESTAMP WITH TIME ZONE NULL",
+        "sqlite": "DATETIME NULL",
+        "default": "TIMESTAMP NULL",
+    },
+    "approved_by": {
+        "postgresql": "VARCHAR(255) NULL",
+        "sqlite": "VARCHAR(255) NULL",
+        "default": "VARCHAR(255) NULL",
+    },
+    "challenger_of_id": {
+        "postgresql": "INTEGER NULL",
+        "sqlite": "INTEGER NULL",
+        "default": "INTEGER NULL",
+    },
+    "lifecycle_metadata": {
+        "postgresql": "JSON NOT NULL DEFAULT '{}'",
+        "sqlite": "JSON NOT NULL DEFAULT '{}'",
+        "default": "JSON NOT NULL DEFAULT '{}'",
+    },
+    "model_drift": {
+        "postgresql": "JSON NOT NULL DEFAULT '{}'",
+        "sqlite": "JSON NOT NULL DEFAULT '{}'",
+        "default": "JSON NOT NULL DEFAULT '{}'",
+    },
+    "feature_drift": {
+        "postgresql": "JSON NOT NULL DEFAULT '{}'",
+        "sqlite": "JSON NOT NULL DEFAULT '{}'",
+        "default": "JSON NOT NULL DEFAULT '{}'",
+    },
+    "last_prediction_at": {
+        "postgresql": "TIMESTAMP WITH TIME ZONE NULL",
+        "sqlite": "DATETIME NULL",
+        "default": "TIMESTAMP NULL",
+    },
+    "last_retrained_at": {
+        "postgresql": "TIMESTAMP WITH TIME ZONE NULL",
+        "sqlite": "DATETIME NULL",
+        "default": "TIMESTAMP NULL",
+    },
+    "retrain_interval_hours": {
+        "postgresql": "INTEGER NULL",
+        "sqlite": "INTEGER NULL",
+        "default": "INTEGER NULL",
+    },
+    "next_retrain_at": {
+        "postgresql": "TIMESTAMP WITH TIME ZONE NULL",
+        "sqlite": "DATETIME NULL",
+        "default": "TIMESTAMP NULL",
+    },
+}
+
 
 def ensure_schema_compatibility(engine: Engine) -> None:
     """Repair additive columns needed before startup seed queries can run."""
     with engine.begin() as connection:
         inspector = inspect(connection)
         table_names = set(inspector.get_table_names())
-        if not {"risk_settings", "strategies", "market_candles", "notifications"}.intersection(table_names):
+        if not {"risk_settings", "strategies", "market_candles", "notifications", "ai_model_metadata"}.intersection(table_names):
             return
 
         dialect = connection.dialect.name
@@ -95,6 +158,8 @@ def ensure_schema_compatibility(engine: Engine) -> None:
             _add_missing_columns(connection, "strategies", STRATEGY_COLUMNS, dialect)
         if "notifications" in table_names:
             _add_missing_columns(connection, "notifications", NOTIFICATION_COLUMNS, dialect)
+        if "ai_model_metadata" in table_names:
+            _add_missing_columns(connection, "ai_model_metadata", AI_MODEL_COLUMNS, dialect)
 
 
 def _add_missing_columns(connection, table_name: str, columns: dict[str, dict[str, str]], dialect: str) -> None:

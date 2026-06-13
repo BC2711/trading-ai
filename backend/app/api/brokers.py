@@ -9,8 +9,8 @@ router = build_domain_router(
         "/brokers/disconnect",
         "/brokers/{broker}/balance",
         "/brokers/{broker}/positions",
+        "/brokers/{broker}/positions/{position_id}/close",
         "/brokers/{broker}/orders",
         "/brokers/{broker}/orders/{order_id}",
     ]
 )
-

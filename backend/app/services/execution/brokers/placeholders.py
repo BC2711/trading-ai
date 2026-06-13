@@ -45,6 +45,9 @@ class PlaceholderBrokerAdapter(BrokerAdapter):
     def place_order(self, payload: BrokerOrderCreate) -> BrokerOrder:
         raise BrokerNotImplementedError(f"{self.display_name} order execution is not implemented.")
 
+    def get_reference_price(self, symbol: str) -> float:
+        return 1.0
+
     def cancel_order(self, order_id: str) -> bool:
         raise BrokerNotImplementedError(f"{self.display_name} order cancellation is not implemented.")
 

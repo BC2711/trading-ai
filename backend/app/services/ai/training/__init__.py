@@ -46,6 +46,14 @@ def deploy_model(db: Session, model_id: int) -> AIModelMetadata:
     return TrainingService(db).deploy(model_id)
 
 
+def approve_model(db: Session, model_id: int, *, approved_by: str | None = None, notes: str | None = None) -> AIModelMetadata:
+    return TrainingService(db).approve(model_id, approved_by=approved_by, notes=notes)
+
+
+def reject_model(db: Session, model_id: int, *, approved_by: str | None = None, notes: str | None = None) -> AIModelMetadata:
+    return TrainingService(db).reject(model_id, approved_by=approved_by, notes=notes)
+
+
 def disable_model(db: Session, model_id: int) -> AIModelMetadata:
     return TrainingService(db).disable(model_id)
 
@@ -56,3 +64,15 @@ def compare_models(db: Session, model_ids: list[int]) -> list[dict]:
 
 def predict(db: Session, model_id: int) -> dict:
     return TrainingService(db).predict(model_id)
+
+
+def set_retrain_schedule(db: Session, model_id: int, interval_hours: int | None) -> AIModelMetadata:
+    return TrainingService(db).set_retrain_schedule(model_id, interval_hours)
+
+
+def check_model_drift(db: Session, model_id: int) -> AIModelMetadata:
+    return TrainingService(db).check_drift(model_id)
+
+
+def retrain_due_models(db: Session, limit: int = 10) -> list[AIModelMetadata]:
+    return TrainingService(db).retrain_due_models(limit=limit)

@@ -93,6 +93,7 @@ export function BrokerConnectionsPage() {
           <div className="mt-4 grid gap-3">
             <Detail label="Broker" value={activeBroker?.display_name ?? "None"} />
             <Detail label="Status" value={activeBroker?.status ?? "unknown"} badgeTone={activeBroker?.connected ? "success" : "neutral"} />
+            <Detail label="Mode" value={activeBroker?.mode ?? "testnet"} badgeTone={activeBroker?.mode === "live" ? "warning" : "neutral"} />
             <Detail label="API key" value={activeBroker?.api_key_configured ? "Configured" : "Missing"} badgeTone={activeBroker?.api_key_configured ? "success" : "warning"} />
             <Detail label="Last sync" value={activeBroker?.last_sync_at ? new Date(activeBroker.last_sync_at).toLocaleString() : "Never"} />
           </div>

@@ -130,6 +130,49 @@ def test_schema_compatibility_adds_missing_notification_delivery_columns(tmp_pat
     assert {"delivery_status", "delivery_attempted_at"}.issubset(columns)
 
 
+def test_schema_compatibility_adds_missing_ai_model_lifecycle_columns(tmp_path) -> None:
+    database_path = tmp_path / "legacy_ai_models.sqlite"
+    engine = create_engine(f"sqlite:///{database_path.as_posix()}")
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                CREATE TABLE ai_model_metadata (
+                    id INTEGER PRIMARY KEY,
+                    name VARCHAR(160) NOT NULL,
+                    symbol VARCHAR(24) NOT NULL,
+                    timeframe VARCHAR(8) NOT NULL,
+                    model_type VARCHAR(64) NOT NULL,
+                    version INTEGER NOT NULL,
+                    model_path VARCHAR(500) NOT NULL,
+                    metrics JSON NOT NULL,
+                    feature_names JSON NOT NULL,
+                    training_params JSON NOT NULL,
+                    target VARCHAR(80) NOT NULL,
+                    deployed BOOLEAN NOT NULL,
+                    status VARCHAR(24) NOT NULL,
+                    created_at DATETIME NOT NULL
+                )
+                """
+            )
+        )
+
+    ensure_schema_compatibility(engine)
+
+    columns = {column["name"] for column in inspect(engine).get_columns("ai_model_metadata")}
+    assert {
+        "approval_status",
+        "champion",
+        "challenger_of_id",
+        "lifecycle_metadata",
+        "model_drift",
+        "feature_drift",
+        "last_prediction_at",
+        "retrain_interval_hours",
+        "next_retrain_at",
+    }.issubset(columns)
+
+
 def test_production_requires_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.delenv("API_KEY", raising=False)

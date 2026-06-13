@@ -1022,6 +1022,11 @@ def test_ai_training_pipeline_versions_deploys_compares_and_predicts() -> None:
         )
         assert train_response.status_code == 200, train_response.text
         model = train_response.json()
+        approve_response = client.post(
+            f"/api/ai/models/{model['id']}/approve",
+            headers=headers,
+            json={"notes": "Approved for lifecycle test."},
+        )
 
         retrain_response = client.post(
             f"/api/ai/models/{model['id']}/retrain",
@@ -1033,6 +1038,11 @@ def test_ai_training_pipeline_versions_deploys_compares_and_predicts() -> None:
 
         deploy_response = client.post(f"/api/ai/models/{retrained['id']}/deploy", headers=headers)
         activate_response = client.post(f"/api/ai/models/{retrained['id']}/activate", headers=headers)
+        schedule_response = client.post(
+            f"/api/ai/models/{retrained['id']}/retrain-schedule",
+            headers=headers,
+            json={"interval_hours": 24},
+        )
         detail_response = client.get(f"/api/ai/models/{retrained['id']}", headers=headers)
         evaluation_response = client.get(f"/api/ai/evaluation/{retrained['id']}", headers=headers)
         active_predict_response = client.post(
@@ -1058,32 +1068,50 @@ def test_ai_training_pipeline_versions_deploys_compares_and_predicts() -> None:
             json={"model_ids": [model["id"], retrained["id"]]},
         )
         predict_response = client.post(f"/api/ai/models/{retrained['id']}/predict", headers=headers)
+        drift_response = client.post(f"/api/ai/models/{retrained['id']}/drift-check", headers=headers)
         disable_response = client.post(f"/api/ai/models/{retrained['id']}/disable", headers=headers)
 
     assert model["version"] == 1
+    assert model["approval_status"] == "pending"
+    assert model["champion"] is False
+    assert "feature_baseline" in model["metrics"]
+    assert approve_response.status_code == 200
+    assert approve_response.json()["approval_status"] == "approved"
     assert retrained["version"] == 2
     assert retrained["parent_model_id"] == model["id"]
+    assert retrained["challenger_of_id"] == model["id"]
     assert "rsi_14" in model["feature_names"]
     assert "macd" in model["feature_names"]
     assert "adx_14" in model["feature_names"]
     assert deploy_response.status_code == 200
     assert deploy_response.json()["deployed"] is True
+    assert deploy_response.json()["champion"] is True
+    assert deploy_response.json()["approval_status"] == "approved"
     assert deploy_response.json()["status"] == "deployed"
     assert activate_response.status_code == 200
     assert activate_response.json()["deployed"] is True
+    assert schedule_response.status_code == 200
+    assert schedule_response.json()["retrain_interval_hours"] == 24
+    assert schedule_response.json()["next_retrain_at"] is not None
     assert detail_response.status_code == 200
     assert detail_response.json()["id"] == retrained["id"]
     assert evaluation_response.status_code == 200
     assert "profit_factor" in evaluation_response.json()
     assert active_predict_response.status_code == 200
     assert active_predict_response.json()["model_id"] == retrained["id"]
+    assert active_predict_response.json()["prediction_id"] is not None
     assert pipeline_train_response.status_code == 200, pipeline_train_response.text
     assert pipeline_train_response.json()["feature_names"] == ["rsi_14", "macd", "ema_20", "sma_20", "bb_width", "volume_ratio"]
     assert compare_response.status_code == 200
     assert [item["rank"] for item in compare_response.json()] == [1, 2]
+    assert {"comparison", "champion", "approval_status"}.issubset(compare_response.json()[0])
     assert predict_response.status_code == 200
     assert predict_response.json()["direction"] in {"buy", "sell"}
+    assert predict_response.json()["prediction_id"] is not None
     assert "bb_width" in predict_response.json()["features"]
+    assert drift_response.status_code == 200
+    assert drift_response.json()["model_drift"]["status"] in {"stable", "watch"}
+    assert drift_response.json()["feature_drift"]["status"] in {"stable", "drifted"}
     assert disable_response.status_code == 200
     assert disable_response.json()["status"] == "disabled"
 

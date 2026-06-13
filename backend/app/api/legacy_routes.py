@@ -9,11 +9,13 @@ from app.models import MarketCandle, MarketOrderBookSnapshot, MarketTick, Market
 from app.schemas.trading import (
     AIModelPrediction,
     AIPredictionRequest,
+    AIModelApprovalRequest,
     AIModelEvaluationRead,
     AIModelRead,
     AIModelCompareRequest,
     AIModelComparison,
     AIModelRetrainRequest,
+    AIModelRetrainScheduleRequest,
     AIModelTrainRequest,
     AIAnalysisRequest,
     AIAnalysisResponse,
@@ -98,6 +100,7 @@ from app.schemas.brokers import (
     BrokerOrderCreate,
     BrokerOrderRead,
     BrokerOrdersResponse,
+    BrokerPositionRead,
     BrokerPositionsResponse,
     BrokerStatusRead,
 )
@@ -168,7 +171,7 @@ from app.services.ai.features import FeatureService
 from app.services.ai.advisor import analyze_signal, analysis_to_response, get_ai_analysis, list_ai_analyses
 from app.services.ai.training import predict as predict_ai_model
 from app.services.ai.training import train_model
-from app.services.ai.training import compare_models, deploy_model, disable_model, retrain_model
+from app.services.ai.training import approve_model, check_model_drift, compare_models, deploy_model, disable_model, reject_model, retrain_model, set_retrain_schedule
 from app.services.ai.inference import PredictionService
 from app.services.ai.registry import ModelRegistryService
 from app.services.analytics import (
@@ -1981,6 +1984,62 @@ def post_ai_model_deploy(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.post("/ai/models/{model_id}/approve", response_model=AIModelRead, tags=["ai"])
+def post_ai_model_approve(
+    model_id: int,
+    request: Request,
+    payload: AIModelApprovalRequest | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("ai-models:manage")),
+) -> AIModelRead:
+    payload = payload or AIModelApprovalRequest()
+    try:
+        model = approve_model(db, model_id, approved_by=payload.approved_by or user.email, notes=payload.notes)
+        audit_route_event(
+            db,
+            request,
+            action="model_approval",
+            module="ai",
+            status="success",
+            message=f"Approved AI model {model.name}.",
+            user=user,
+            entity_type="ai_model",
+            entity_id=model.id,
+            details={"name": model.name, "approval_status": model.approval_status},
+        )
+        return AIModelRead.model_validate(model)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/ai/models/{model_id}/reject", response_model=AIModelRead, tags=["ai"])
+def post_ai_model_reject(
+    model_id: int,
+    request: Request,
+    payload: AIModelApprovalRequest | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("ai-models:manage")),
+) -> AIModelRead:
+    payload = payload or AIModelApprovalRequest()
+    try:
+        model = reject_model(db, model_id, approved_by=payload.approved_by or user.email, notes=payload.notes)
+        audit_route_event(
+            db,
+            request,
+            action="model_rejection",
+            module="ai",
+            status="success",
+            message=f"Rejected AI model {model.name}.",
+            user=user,
+            entity_type="ai_model",
+            entity_id=model.id,
+            details={"name": model.name, "approval_status": model.approval_status},
+        )
+        return AIModelRead.model_validate(model)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.post("/ai/models/{model_id}/activate", response_model=AIModelRead, tags=["ai"])
 def post_ai_model_activate(
     model_id: int,
@@ -2017,6 +2076,31 @@ def post_ai_model_disable(
         return AIModelRead.model_validate(disable_model(db, model_id))
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/ai/models/{model_id}/retrain-schedule", response_model=AIModelRead, tags=["ai"])
+def post_ai_model_retrain_schedule(
+    model_id: int,
+    payload: AIModelRetrainScheduleRequest,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("train_models")),
+) -> AIModelRead:
+    try:
+        return AIModelRead.model_validate(set_retrain_schedule(db, model_id, payload.interval_hours))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/ai/models/{model_id}/drift-check", response_model=AIModelRead, tags=["ai"])
+def post_ai_model_drift_check(
+    model_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_permission("ai-models:view")),
+) -> AIModelRead:
+    try:
+        return AIModelRead.model_validate(check_model_drift(db, model_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/ai/evaluation/{model_id}", response_model=AIModelEvaluationRead, tags=["ai"])
@@ -2273,16 +2357,110 @@ def post_broker_order(
 def delete_broker_order(
     broker: str,
     order_id: str,
+    request: Request,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_permission("api-credentials:manage")),
+    user: User = Depends(require_permission("api-credentials:manage")),
 ) -> BrokerCancelResponse:
     try:
-        return BrokerService(db).cancel_order(broker, order_id)
+        response = BrokerService(db).cancel_order(broker, order_id)
+        audit_route_event(
+            db,
+            request,
+            action="order_cancellation",
+            module="trading",
+            status="success" if response.cancelled else "failed",
+            message=f"Cancelled {broker} order {order_id}." if response.cancelled else f"{broker} order {order_id} was not cancelled.",
+            user=user,
+            details={"broker": broker, "order_id": order_id},
+        )
+        return response
     except ValueError as exc:
+        audit_route_event(
+            db,
+            request,
+            action="order_cancellation",
+            module="trading",
+            status="failed",
+            message=f"Failed {broker} order cancellation for {order_id}: {exc}",
+            user=user,
+            severity="error",
+            details={"broker": broker, "order_id": order_id},
+        )
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except BrokerNotImplementedError as exc:
+        audit_route_event(
+            db,
+            request,
+            action="order_cancellation",
+            module="trading",
+            status="failed",
+            message=f"Failed {broker} order cancellation for {order_id}: {exc}",
+            user=user,
+            severity="warning",
+            details={"broker": broker, "order_id": order_id},
+        )
         raise HTTPException(status_code=501, detail=str(exc)) from exc
     except BrokerAdapterError as exc:
+        audit_route_event(
+            db,
+            request,
+            action="order_cancellation",
+            module="trading",
+            status="failed",
+            message=f"Failed {broker} order cancellation for {order_id}: {exc}",
+            user=user,
+            severity="error",
+            details={"broker": broker, "order_id": order_id},
+        )
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/brokers/{broker}/positions/{position_id}/close", response_model=BrokerPositionRead, tags=["brokers"])
+def post_broker_close_position(
+    broker: str,
+    position_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("api-credentials:manage")),
+) -> BrokerPositionRead:
+    try:
+        position = BrokerService(db).close_position(broker, position_id)
+        audit_route_event(
+            db,
+            request,
+            action="position_close",
+            module="trading",
+            status="success",
+            message=f"Closed {broker} position {position_id}.",
+            user=user,
+            details={"broker": broker, "position_id": position_id, "symbol": position.symbol},
+        )
+        return position
+    except ValueError as exc:
+        audit_route_event(
+            db,
+            request,
+            action="position_close",
+            module="trading",
+            status="failed",
+            message=f"Failed {broker} position close for {position_id}: {exc}",
+            user=user,
+            severity="warning",
+            details={"broker": broker, "position_id": position_id},
+        )
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except BrokerAdapterError as exc:
+        audit_route_event(
+            db,
+            request,
+            action="position_close",
+            module="trading",
+            status="failed",
+            message=f"Failed {broker} position close for {position_id}: {exc}",
+            user=user,
+            severity="error",
+            details={"broker": broker, "position_id": position_id},
+        )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 

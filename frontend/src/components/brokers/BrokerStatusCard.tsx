@@ -31,6 +31,7 @@ export function BrokerStatusCard({
 
       <div className="mt-4 grid gap-2 rounded-[8px] border border-white/10 bg-white/10 p-3 dark:bg-white/5">
         <StatusLine label="API key" value={broker.api_key_configured ? "Configured" : "Missing"} tone={broker.api_key_configured ? "success" : "warning"} />
+        <StatusLine label="Mode" value={broker.mode} tone={broker.mode === "live" ? "warning" : undefined} />
         <StatusLine label="Last sync" value={broker.last_sync_at ? formatDate(broker.last_sync_at) : "Never"} />
       </div>
 

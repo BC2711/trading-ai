@@ -44,6 +44,26 @@ export async function activateModel(modelId: number): Promise<AIModelResource> {
   return response.data;
 }
 
+export async function approveModel(modelId: number, notes?: string): Promise<AIModelResource> {
+  const response = await apiClient.post<AIModelResource>(`/api/ai/models/${modelId}/approve`, { notes: notes ?? null });
+  return response.data;
+}
+
+export async function rejectModel(modelId: number, notes?: string): Promise<AIModelResource> {
+  const response = await apiClient.post<AIModelResource>(`/api/ai/models/${modelId}/reject`, { notes: notes ?? null });
+  return response.data;
+}
+
+export async function scheduleModelRetraining(modelId: number, intervalHours: number | null): Promise<AIModelResource> {
+  const response = await apiClient.post<AIModelResource>(`/api/ai/models/${modelId}/retrain-schedule`, { interval_hours: intervalHours });
+  return response.data;
+}
+
+export async function checkModelDrift(modelId: number): Promise<AIModelResource> {
+  const response = await apiClient.post<AIModelResource>(`/api/ai/models/${modelId}/drift-check`);
+  return response.data;
+}
+
 export async function fetchModelEvaluation(modelId: number): Promise<ModelEvaluation> {
   const response = await apiClient.get<ModelEvaluation>(`/api/ai/evaluation/${modelId}`);
   return response.data;

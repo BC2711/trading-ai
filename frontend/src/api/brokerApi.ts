@@ -6,6 +6,7 @@ export type BrokerStatus = {
   status: string;
   connected: boolean;
   api_key_configured: boolean;
+  mode: "testnet" | "live";
   last_sync_at: string | null;
   message: string;
 };
@@ -88,5 +89,10 @@ export async function placeBrokerOrder(broker: string, payload: BrokerOrderReque
 
 export async function cancelBrokerOrder(broker: string, orderId: string): Promise<{ broker: string; order_id: string; cancelled: boolean; message: string }> {
   const response = await apiClient.delete<{ broker: string; order_id: string; cancelled: boolean; message: string }>(`/api/brokers/${broker}/orders/${orderId}`);
+  return response.data;
+}
+
+export async function closeBrokerPosition(broker: string, positionId: string): Promise<BrokerPosition> {
+  const response = await apiClient.post<BrokerPosition>(`/api/brokers/${broker}/positions/${positionId}/close`);
   return response.data;
 }

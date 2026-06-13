@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     celery_broker_url: str = "redis://redis:6379/1"
     celery_result_backend: str = "redis://redis:6379/2"
     binance_api_base_url: str = "https://api.binance.com"
+    binance_testnet_api_base_url: str = "https://testnet.binance.vision"
+    binance_broker_mode: str = "testnet"
+    binance_recv_window: int = 5000
     market_sync_symbols: list[str] = ["BTCUSDT", "ETHUSDT"]
     market_sync_timeframe: str = "15m"
     market_sync_limit: int = 500
@@ -45,6 +48,9 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3"
     local_model_path: str | None = None
+    ai_retraining_scheduler_enabled: bool = False
+    ai_retraining_check_interval_minutes: int = 60
+    ai_retraining_batch_size: int = 5
     sentiment_providers: list[str] = ["newsapi", "cryptopanic", "reddit", "x"]
     sentiment_request_timeout_seconds: float = 8.0
     sentiment_items_per_provider: int = 10

@@ -14,12 +14,15 @@ router = build_domain_router(
         "/ai/models/{model_id}",
         "/ai/models/{model_id}/retrain",
         "/ai/models/{model_id}/deploy",
+        "/ai/models/{model_id}/approve",
+        "/ai/models/{model_id}/reject",
         "/ai/models/{model_id}/activate",
         "/ai/models/{model_id}/disable",
+        "/ai/models/{model_id}/retrain-schedule",
+        "/ai/models/{model_id}/drift-check",
         "/ai/evaluation/{model_id}",
         "/ai/models/compare",
         "/ai/models/{model_id}/predict",
         "/ai/predict",
     ]
 )
-

@@ -58,6 +58,8 @@ Important backend variables:
 - `REDIS_URL`: Redis URL for app-level Redis usage.
 - `CELERY_BROKER_URL`: Celery broker URL, usually Redis DB 1.
 - `CELERY_RESULT_BACKEND`: Celery result backend URL, usually Redis DB 2.
+- `BINANCE_BROKER_MODE`: broker execution mode, `testnet` by default. Set to `live` only after enabling live trading risk controls and adding active live credentials.
+- `BINANCE_API_BASE_URL`, `BINANCE_TESTNET_API_BASE_URL`, `BINANCE_RECV_WINDOW`: Binance REST endpoints and signed request receive window.
 - `MARKET_SYNC_SYMBOLS`, `MARKET_SYNC_TIMEFRAME`, `MARKET_SYNC_LIMIT`: historical market sync defaults.
 - `AI_PROVIDER`: `rules`, `openai`, `ollama`, or `local-llama`.
 - `OPENAI_API_KEY`: optional placeholder only; leave empty unless using OpenAI.

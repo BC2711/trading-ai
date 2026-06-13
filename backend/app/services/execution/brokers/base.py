@@ -80,6 +80,10 @@ class BrokerAdapter(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def get_reference_price(self, symbol: str) -> float:
+        raise NotImplementedError
+
+    @abstractmethod
     def cancel_order(self, order_id: str) -> bool:
         raise NotImplementedError
 

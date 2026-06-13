@@ -761,6 +761,15 @@ class AIModelRetrainRequest(BaseModel):
     training_params: dict = Field(default_factory=dict)
 
 
+class AIModelApprovalRequest(BaseModel):
+    approved_by: str | None = Field(default=None, max_length=255)
+    notes: str | None = Field(default=None, max_length=1000)
+
+
+class AIModelRetrainScheduleRequest(BaseModel):
+    interval_hours: int | None = Field(default=None, ge=1, le=24 * 90)
+
+
 class AIModelRead(BaseModel):
     id: int
     name: str
@@ -775,6 +784,18 @@ class AIModelRead(BaseModel):
     training_params: dict = Field(default_factory=dict)
     target: str = "next_close_direction"
     deployed: bool = False
+    champion: bool = False
+    approval_status: str = "pending"
+    approved_at: datetime | None = None
+    approved_by: str | None = None
+    challenger_of_id: int | None = None
+    lifecycle_metadata: dict = Field(default_factory=dict)
+    model_drift: dict = Field(default_factory=dict)
+    feature_drift: dict = Field(default_factory=dict)
+    last_prediction_at: datetime | None = None
+    last_retrained_at: datetime | None = None
+    retrain_interval_hours: int | None = None
+    next_retrain_at: datetime | None = None
     status: str
     created_at: datetime
 
@@ -783,6 +804,7 @@ class AIModelRead(BaseModel):
 
 class AIModelPrediction(BaseModel):
     model_id: int
+    prediction_id: int | None = None
     symbol: str
     direction: str
     confidence: float
@@ -830,6 +852,10 @@ class AIModelComparison(BaseModel):
     version: int
     status: str
     deployed: bool
+    champion: bool = False
+    challenger_of_id: int | None = None
+    approval_status: str = "pending"
+    comparison: dict = Field(default_factory=dict)
     metrics: dict
     rank: int
 

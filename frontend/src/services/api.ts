@@ -615,11 +615,23 @@ export type AIModelResource = {
   version: number;
   parent_model_id: number | null;
   model_path: string;
-  metrics: Record<string, number | string>;
+  metrics: Record<string, unknown>;
   feature_names: string[];
   training_params: Record<string, unknown>;
   target: string;
   deployed: boolean;
+  champion: boolean;
+  approval_status: "pending" | "approved" | "rejected";
+  approved_at: string | null;
+  approved_by: string | null;
+  challenger_of_id: number | null;
+  lifecycle_metadata: Record<string, unknown>;
+  model_drift: Record<string, unknown>;
+  feature_drift: Record<string, unknown>;
+  last_prediction_at: string | null;
+  last_retrained_at: string | null;
+  retrain_interval_hours: number | null;
+  next_retrain_at: string | null;
   status: string;
   created_at: string;
 };
@@ -640,6 +652,7 @@ export type AIModelRetrainRequest = {
 
 export type AIModelPrediction = {
   model_id: number;
+  prediction_id: number | null;
   symbol: string;
   direction: string;
   confidence: number;
@@ -648,8 +661,9 @@ export type AIModelPrediction = {
 
 export type AIModelComparison = Pick<
   AIModelResource,
-  "id" | "name" | "symbol" | "timeframe" | "model_type" | "version" | "status" | "deployed" | "metrics"
+  "id" | "name" | "symbol" | "timeframe" | "model_type" | "version" | "status" | "deployed" | "champion" | "challenger_of_id" | "approval_status" | "metrics"
 > & {
+  comparison: Record<string, unknown>;
   rank: number;
 };
 
