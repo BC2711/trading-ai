@@ -109,7 +109,7 @@ def test_api_credentials_do_not_return_secret() -> None:
             "/api/api-credentials",
             headers=headers,
             json={
-                "exchange": "binance",
+                "exchange": "redaction-test",
                 "api_key": "public-key",
                 "api_secret": "private-secret",
                 "mode": "paper",
@@ -732,7 +732,7 @@ def test_paper_trading_engine_simulates_orders_positions_and_reset() -> None:
         order_response = client.post(
             "/api/paper/orders",
             headers=headers,
-            json={"symbol": "BTCUSDT", "side": "buy", "order_type": "market", "quantity": 0.01},
+            json={"symbol": "BTCUSDT", "side": "buy", "order_type": "market", "quantity": 0.001},
         )
         orders_response = client.get("/api/paper/orders", headers=headers)
         positions_response = client.get("/api/paper/positions", headers=headers)

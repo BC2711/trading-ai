@@ -37,6 +37,7 @@ class RiskTradeValidationRequest(BaseModel):
     take_profit: float | None = Field(default=None, gt=0)
     leverage: float = Field(default=1.0, gt=0)
     execution_mode: str = Field(default="paper", pattern="^(paper|live)$")
+    reduce_only: bool = False
 
 
 class RiskTradeValidationResponse(BaseModel):

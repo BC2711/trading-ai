@@ -15,10 +15,12 @@ from app.schemas.paper_trading import (
     PaperTradingPositionRead,
     PaperTradingResetResponse,
 )
+from app.schemas.risk import RiskTradeValidationRequest
 from app.services.audit import record_event
 from app.services.execution.paper import get_latest_price, update_mark_to_market
 from app.services.paper_trading.repository import PaperTradingRepository
 from app.services.repository import get_symbol, seed_defaults
+from app.services.risk import validate_trade_request
 
 
 DEFAULT_STARTING_BALANCE = 10000.0
@@ -50,6 +52,56 @@ class PaperTradingService:
         notional = quantity * fill_price
         self._mark_open_positions()
         available_balance = self._available_balance(account)
+        risk = validate_trade_request(
+            self.db,
+            RiskTradeValidationRequest(
+                symbol=symbol.symbol,
+                side=payload.side,
+                price=fill_price,
+                quantity=quantity,
+                execution_mode="paper",
+            ),
+            symbol_id=symbol.id,
+        )
+
+        if not risk.approved:
+            order = PaperOrder(
+                symbol_id=symbol.id,
+                side=payload.side,
+                order_type=payload.order_type,
+                quantity=quantity,
+                requested_price=round(fill_price, 8),
+                fill_price=None,
+                status="rejected",
+                risk_status="blocked",
+                risk_message=risk.message,
+                execution_mode="paper",
+                failure_reason=risk.message,
+            )
+            self.db.add(order)
+            self.db.commit()
+            self.db.refresh(order)
+            self._record_ledger(
+                account,
+                event_type="order_rejected",
+                symbol_id=symbol.id,
+                order_id=order.id,
+                side=payload.side,
+                quantity=quantity,
+                price=fill_price,
+                metadata={"reason": order.failure_reason, "risk_score": risk.risk_score},
+            )
+            record_event(
+                self.db,
+                event_type="paper_trading.order_rejected",
+                entity_type="paper_order",
+                entity_id=order.id,
+                severity="warning",
+                message=f"Paper order rejected for {symbol.symbol} {payload.side.upper()}: {risk.message}",
+                metadata={"symbol": symbol.symbol, "side": payload.side, "quantity": quantity, "risk_score": risk.risk_score},
+                commit=True,
+            )
+            return self._order_to_schema(order)
 
         if notional > available_balance:
             order = PaperOrder(
@@ -89,7 +141,7 @@ class PaperTradingService:
             fill_price=round(fill_price, 8),
             status="filled",
             risk_status="approved",
-            risk_message="Filled by paper trading engine. No broker execution was used.",
+            risk_message=f"{risk.message} Filled by paper trading engine. No broker execution was used.",
             execution_mode="paper",
             filled_at=now,
         )
@@ -144,6 +196,22 @@ class PaperTradingService:
             raise ValueError(f"No market price is available for {position.symbol_ref.symbol}")
 
         now = utc_now()
+        close_side = "sell" if position.side == "long" else "buy"
+        risk = validate_trade_request(
+            self.db,
+            RiskTradeValidationRequest(
+                symbol=position.symbol_ref.symbol,
+                side=close_side,
+                price=latest_price,
+                quantity=position.quantity,
+                execution_mode="paper",
+                reduce_only=True,
+            ),
+            symbol_id=position.symbol_id,
+        )
+        if not risk.approved:
+            raise ValueError(f"Risk validation rejected close order: {risk.message}")
+
         update_mark_to_market(position, latest_price)
         realized_pnl = position.unrealized_pnl
         position.realized_pnl = realized_pnl
@@ -154,7 +222,6 @@ class PaperTradingService:
         account.cash_balance = round(account.cash_balance + realized_pnl, 4)
         account.realized_pnl = round(account.realized_pnl + realized_pnl, 4)
         account.updated_at = now
-        close_side = "sell" if position.side == "long" else "buy"
         order = PaperOrder(
             symbol_id=position.symbol_id,
             side=close_side,

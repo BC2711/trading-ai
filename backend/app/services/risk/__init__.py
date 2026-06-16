@@ -41,17 +41,20 @@ def validate_trade(
     db: Session,
     *,
     symbol_id: int,
+    side: str = "buy",
     price: float,
     quantity: float,
     execution_mode: str = "paper",
+    reduce_only: bool = False,
 ) -> RiskDecision:
     symbol = db.get(get_symbol_model(), symbol_id)
     payload = RiskTradeValidationRequest(
         symbol=symbol.symbol if symbol else "UNKNOWN",
-        side="buy",
+        side=side,
         price=price,
         quantity=quantity,
         execution_mode=execution_mode,
+        reduce_only=reduce_only,
     )
     result = validate_trade_request(db, payload, symbol_id=symbol_id)
     return RiskDecision(result.approved, result.message, result.risk_score, result.warnings)
@@ -75,7 +78,7 @@ def validate_trade_request(
 
     equity = get_current_equity(db)
     notional = payload.price * payload.quantity
-    risk_amount = _trade_risk_amount(payload)
+    risk_amount = 0.0 if payload.reduce_only else _trade_risk_amount(payload)
     risk_pct = risk_amount / equity if equity else 1.0
     warnings = stop_loss_take_profit_warnings(payload)
 
@@ -85,11 +88,14 @@ def validate_trade_request(
     open_trades = open_trade_count(db)
     symbol_exposure = exposure_for_symbol(db, symbol.id)
     total_exposure = total_open_exposure(db)
-    projected_symbol_exposure_pct = (symbol_exposure + notional) / equity if equity else 1.0
-    projected_leverage = (total_exposure + notional) / equity if equity else payload.leverage
+    exposure_delta = -notional if payload.reduce_only else notional
+    projected_symbol_exposure = max(0.0, symbol_exposure + exposure_delta)
+    projected_total_exposure = max(0.0, total_exposure + exposure_delta)
+    projected_symbol_exposure_pct = projected_symbol_exposure / equity if equity else 1.0
+    projected_leverage = projected_total_exposure / equity if equity else payload.leverage
 
     if settings.emergency_stop:
-        return _validation(False, "Circuit breaker is enabled.", 100.0, payload, notional, risk_amount, risk_pct, projected_symbol_exposure_pct, projected_leverage, warnings)
+        return _validation(False, "Emergency stop is enabled.", 100.0, payload, notional, risk_amount, risk_pct, projected_symbol_exposure_pct, projected_leverage, warnings)
 
     if payload.execution_mode == "live":
         live_credential = db.scalar(select(ApiCredential).where(ApiCredential.mode == "live", ApiCredential.is_active.is_(True)))
@@ -97,11 +103,11 @@ def validate_trade_request(
             return _validation(False, "Live trading is disabled or no active live credential exists.", 100.0, payload, notional, risk_amount, risk_pct, projected_symbol_exposure_pct, projected_leverage, warnings)
 
     denials = []
-    if open_trades >= settings.max_open_trades:
+    if not payload.reduce_only and open_trades >= settings.max_open_trades:
         denials.append(f"Max open trades reached ({settings.max_open_trades}).")
-    if risk_pct > settings.max_risk_per_trade:
+    if not payload.reduce_only and risk_pct > settings.max_risk_per_trade:
         denials.append(f"Trade risk exceeds {settings.max_risk_per_trade * 100:.1f}% per-trade limit.")
-    if projected_symbol_exposure_pct > settings.max_symbol_exposure:
+    if not payload.reduce_only and projected_symbol_exposure_pct > settings.max_symbol_exposure:
         denials.append(f"Symbol exposure would exceed {settings.max_symbol_exposure * 100:.1f}% limit.")
     if daily_loss >= equity * settings.max_daily_loss:
         denials.append(f"Daily loss limit reached ({settings.max_daily_loss * 100:.1f}%).")
@@ -345,7 +351,7 @@ def risk_score(
 def risk_warnings(settings: RiskSetting, daily_usage: float, weekly_usage: float, drawdown_usage: float, exposure_usage: float, leverage_usage: float) -> list[str]:
     warnings = []
     if settings.emergency_stop:
-        warnings.append("Circuit breaker is enabled.")
+        warnings.append("Emergency stop is enabled.")
     if daily_usage >= 0.8:
         warnings.append("Daily loss usage is elevated.")
     if weekly_usage >= 0.8:

@@ -21,7 +21,7 @@ def create_paper_order(db: Session, payload: PaperOrderRequest) -> PaperOrder:
 
     side = resolve_order_side(db, payload)
     quantity = payload.quantity or suggested_quantity(db, latest_price)
-    risk = validate_trade(db, symbol_id=symbol.id, price=latest_price, quantity=quantity, execution_mode="paper")
+    risk = validate_trade(db, symbol_id=symbol.id, side=side, price=latest_price, quantity=quantity, execution_mode="paper")
     now = utc_now()
     order = PaperOrder(
         symbol_id=symbol.id,
@@ -124,6 +124,19 @@ def close_paper_position(db: Session, position_id: int) -> PaperPosition | None:
         raise ValueError(f"No market price is available for {position.symbol_ref.symbol}")
 
     now = utc_now()
+    close_side = "sell" if position.side == "long" else "buy"
+    risk = validate_trade(
+        db,
+        symbol_id=position.symbol_id,
+        side=close_side,
+        price=latest_price,
+        quantity=position.quantity,
+        execution_mode="paper",
+        reduce_only=True,
+    )
+    if not risk.approved:
+        raise ValueError(f"Risk validation rejected close order: {risk.message}")
+
     update_mark_to_market(position, latest_price)
     position.realized_pnl = position.unrealized_pnl
     position.unrealized_pnl = 0.0
@@ -131,7 +144,6 @@ def close_paper_position(db: Session, position_id: int) -> PaperPosition | None:
     position.closed_at = now
     position.updated_at = now
 
-    close_side = "sell" if position.side == "long" else "buy"
     db.add(
         PaperOrder(
             symbol_id=position.symbol_id,

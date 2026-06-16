@@ -140,6 +140,7 @@ class BrokerService:
         self._validate_order_risk(
             adapter,
             BrokerOrderCreate(symbol=position.symbol, side="sell", order_type="market", quantity=position.quantity, price=price),
+            reduce_only=True,
         )
         closed_position = adapter.close_position(position.id)
         self._touch(adapter.name)
@@ -207,7 +208,7 @@ class BrokerService:
             return "live" if settings.binance_broker_mode.lower().strip() == "live" else "testnet"
         return "testnet"
 
-    def _validate_order_risk(self, adapter: BrokerAdapter, payload: BrokerOrderCreate) -> None:
+    def _validate_order_risk(self, adapter: BrokerAdapter, payload: BrokerOrderCreate, *, reduce_only: bool = False) -> None:
         price = payload.price or adapter.get_reference_price(payload.symbol)
         result = validate_trade_request(
             self.db,
@@ -217,6 +218,7 @@ class BrokerService:
                 price=price,
                 quantity=payload.quantity,
                 execution_mode="live" if self.broker_mode(adapter.name) == "live" else "paper",
+                reduce_only=reduce_only,
             ),
         )
         if not result.approved:
