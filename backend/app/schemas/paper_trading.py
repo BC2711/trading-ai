@@ -25,6 +25,8 @@ class PaperTradingOrderCreate(BaseModel):
     side: str = Field(..., pattern="^(buy|sell)$")
     order_type: str = Field(default="market", pattern="^market$")
     quantity: float = Field(..., gt=0)
+    signal_id: int | None = None
+    ai_analysis_id: int | None = None
 
 
 class PaperTradingOrderRead(BaseModel):
@@ -40,6 +42,8 @@ class PaperTradingOrderRead(BaseModel):
     risk_message: str
     execution_mode: str
     failure_reason: str | None = None
+    signal_id: int | None = None
+    ai_analysis_id: int | None = None
     created_at: datetime
     filled_at: datetime | None
 

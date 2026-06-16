@@ -169,6 +169,8 @@ def test_brokers_paper_trading_portfolio_and_risk_endpoints() -> None:
             },
         )
         risk_summary_response = client.get("/api/risk/summary", headers=headers)
+        automation_status_response = client.get("/api/automation/status", headers=headers)
+        automation_run_response = client.post("/api/automation/run", headers=headers)
 
     assert reset_response.status_code == 200
     assert brokers_response.status_code == 200
@@ -186,6 +188,10 @@ def test_brokers_paper_trading_portfolio_and_risk_endpoints() -> None:
     assert risk_response.json()["approved"] is True
     assert risk_summary_response.status_code == 200
     assert "recent_rejected_trades" in risk_summary_response.json()
+    assert automation_status_response.status_code == 200
+    assert automation_status_response.json()["enabled"] is False
+    assert automation_run_response.status_code == 200
+    assert automation_run_response.json()["executed_orders"] == 0
 
 
 def test_notifications_audit_and_monitoring_endpoints() -> None:

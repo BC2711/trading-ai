@@ -67,6 +67,8 @@ class PaperTradingService:
         if not risk.approved:
             order = PaperOrder(
                 symbol_id=symbol.id,
+                signal_id=payload.signal_id,
+                ai_analysis_id=payload.ai_analysis_id,
                 side=payload.side,
                 order_type=payload.order_type,
                 quantity=quantity,
@@ -106,6 +108,8 @@ class PaperTradingService:
         if notional > available_balance:
             order = PaperOrder(
                 symbol_id=symbol.id,
+                signal_id=payload.signal_id,
+                ai_analysis_id=payload.ai_analysis_id,
                 side=payload.side,
                 order_type=payload.order_type,
                 quantity=quantity,
@@ -134,6 +138,8 @@ class PaperTradingService:
 
         order = PaperOrder(
             symbol_id=symbol.id,
+            signal_id=payload.signal_id,
+            ai_analysis_id=payload.ai_analysis_id,
             side=payload.side,
             order_type=payload.order_type,
             quantity=quantity,
@@ -467,6 +473,8 @@ class PaperTradingService:
             risk_message=order.risk_message,
             execution_mode=order.execution_mode,
             failure_reason=order.failure_reason,
+            signal_id=order.signal_id,
+            ai_analysis_id=order.ai_analysis_id,
             created_at=order.created_at,
             filled_at=order.filled_at,
         )

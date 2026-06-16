@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api import ai_models, audit, auth, backtests, brokers, market_data, notifications, paper_trading, portfolio, rbac, risk, signals, strategies, users
+from app.api import ai_models, audit, auth, automation, backtests, brokers, market_data, notifications, paper_trading, portfolio, rbac, risk, signals, strategies, users
 from app.api.monitoring import legacy_router as monitoring_router
 from app.api.legacy_routes import (
     websocket_notifications,
@@ -20,6 +20,7 @@ domain_routers = [
     strategies.router,
     backtests.router,
     ai_models.router,
+    automation.router,
     brokers.router,
     paper_trading.router,
     portfolio.router,
@@ -32,4 +33,3 @@ domain_routers = [
 router = APIRouter()
 for domain_router in domain_routers:
     router.include_router(domain_router)
-

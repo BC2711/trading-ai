@@ -2,11 +2,12 @@ import time
 
 from app.core.config import settings
 from app.core.scheduler import create_scheduler
-from app.workers.tasks import refresh_market_data, retrain_due_ai_models
+from app.workers.tasks import refresh_market_data, retrain_due_ai_models, run_automated_trading
 
 
 MARKET_SYNC_JOB_ID = "market-data-sync"
 AI_RETRAIN_JOB_ID = "ai-model-retraining"
+AUTOMATED_TRADING_JOB_ID = "automated-trading"
 
 
 def scheduled_market_sync() -> None:
@@ -17,6 +18,11 @@ def scheduled_market_sync() -> None:
 def scheduled_ai_retraining() -> None:
     task = retrain_due_ai_models.delay()
     print(f"queued {AI_RETRAIN_JOB_ID} task={task.id}", flush=True)
+
+
+def scheduled_automated_trading() -> None:
+    task = run_automated_trading.delay()
+    print(f"queued {AUTOMATED_TRADING_JOB_ID} task={task.id}", flush=True)
 
 
 def main() -> None:
@@ -40,7 +46,19 @@ def main() -> None:
             max_instances=1,
             coalesce=True,
         )
+    if settings.automated_trading_enabled:
+        scheduler.add_job(
+            scheduled_automated_trading,
+            "interval",
+            minutes=settings.automated_trading_interval_minutes,
+            id=AUTOMATED_TRADING_JOB_ID,
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
     scheduled_market_sync()
+    if settings.automated_trading_enabled:
+        scheduled_automated_trading()
     scheduler.start()
 
     try:

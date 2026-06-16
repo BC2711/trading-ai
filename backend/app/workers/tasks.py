@@ -2,6 +2,7 @@ from app.core.celery_app import celery_app
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.services.ai.training import retrain_due_models
+from app.services.automation import run_automated_trading as run_automated_trading_service
 from app.services.market_data.jobs import run_market_data_refresh
 
 
@@ -31,3 +32,10 @@ def retrain_due_ai_models(limit: int | None = None) -> dict:
             "retrained_count": len(models),
             "model_ids": [model.id for model in models],
         }
+
+
+@celery_app.task(name="app.workers.tasks.run_automated_trading")
+def run_automated_trading() -> dict:
+    with SessionLocal() as db:
+        result = run_automated_trading_service(db)
+        return result.model_dump(mode="json")

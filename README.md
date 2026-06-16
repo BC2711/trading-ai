@@ -71,6 +71,10 @@ Important backend variables:
 - `CELERY_RESULT_BACKEND`: Celery result backend URL, usually Redis DB 2.
 - `BINANCE_BROKER_MODE`: broker execution mode, `testnet` by default. Set to `live` only after enabling live trading risk controls and adding active live credentials.
 - `BINANCE_API_BASE_URL`, `BINANCE_TESTNET_API_BASE_URL`, `BINANCE_RECV_WINDOW`: Binance REST endpoints and signed request receive window.
+- `AUTOMATED_TRADING_ENABLED`: enables the autonomous signal-to-order worker. Defaults to `false`.
+- `AUTOMATED_TRADING_EXECUTION_MODE`: `paper` or `live`. Defaults to `paper`.
+- `AUTOMATED_TRADING_LIVE_ENABLED`: extra live automation gate. Keep this `false` until paper/testnet validation, kill-switch drills, and risk review are complete.
+- `AUTOMATED_TRADING_ORDER_NOTIONAL_USD`, `AUTOMATED_TRADING_MIN_CONFIDENCE`, `AUTOMATED_TRADING_MAX_ORDERS_PER_RUN`, `AUTOMATED_TRADING_COOLDOWN_SECONDS`: autonomous sizing and throttling controls.
 - `MARKET_SYNC_SYMBOLS`, `MARKET_SYNC_TIMEFRAME`, `MARKET_SYNC_LIMIT`: historical market sync defaults.
 - `AI_PROVIDER`: `rules`, `openai`, `ollama`, or `local-llama`.
 - `OPENAI_API_KEY`: optional placeholder only; leave empty unless using OpenAI.
@@ -191,6 +195,42 @@ Manual scheduler command:
 ```bash
 docker compose --env-file .env.production run --rm backend /app/scripts/scheduler.sh
 ```
+
+### Autonomous Trading
+
+Autonomous trading is available but disabled by default. When enabled, the scheduler queues an automated trading task that:
+
+- scans recent active `buy`/`sell` signals above `AUTOMATED_TRADING_MIN_CONFIDENCE`
+- requires the linked strategy to be enabled and active by default
+- skips signals already consumed by automation
+- respects cooldowns and one-open-position-per-symbol defaults
+- sizes orders with `AUTOMATED_TRADING_ORDER_NOTIONAL_USD` capped by risk limits
+- sends every order through the existing risk engine before execution
+- records audit events for executed, rejected, failed, and blocked automation attempts
+
+Paper automation:
+
+```bash
+AUTOMATED_TRADING_ENABLED=true
+AUTOMATED_TRADING_EXECUTION_MODE=paper
+AUTOMATED_TRADING_LIVE_ENABLED=false
+```
+
+Live automation requires all of the following:
+
+```bash
+AUTOMATED_TRADING_ENABLED=true
+AUTOMATED_TRADING_EXECUTION_MODE=live
+AUTOMATED_TRADING_LIVE_ENABLED=true
+BINANCE_BROKER_MODE=live
+```
+
+The risk setting `live_trading_enabled` must also be enabled, emergency stop must be disabled, and an active live broker credential must exist. Keep max orders, notional sizing, and cooldowns conservative.
+
+Automation endpoints:
+
+- `GET /api/automation/status`
+- `POST /api/automation/run`
 
 ### Production Run Commands
 

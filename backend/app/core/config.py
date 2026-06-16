@@ -81,6 +81,20 @@ class Settings(BaseSettings):
     whatsapp_api_base_url: str = "https://graph.facebook.com/v20.0"
     discord_webhook_url: str | None = None
 
+    # Autonomous trading is opt-in. Live automation has an extra gate in addition to risk settings.
+    automated_trading_enabled: bool = False
+    automated_trading_execution_mode: str = "paper"
+    automated_trading_live_enabled: bool = False
+    automated_trading_broker: str = "binance"
+    automated_trading_min_confidence: float = 0.7
+    automated_trading_max_orders_per_run: int = 3
+    automated_trading_order_notional_usd: float = 100.0
+    automated_trading_cooldown_seconds: int = 300
+    automated_trading_interval_minutes: int = 5
+    automated_trading_max_signal_age_minutes: int = 30
+    automated_trading_one_position_per_symbol: bool = True
+    automated_trading_require_strategy_enabled: bool = True
+
     # Websocket Settings
     ws_ping_interval: int = 20
     ws_ping_timeout: int = 10
@@ -104,6 +118,14 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_production_settings(self) -> "Settings":
+        if self.automated_trading_execution_mode not in {"paper", "live"}:
+            raise ValueError("AUTOMATED_TRADING_EXECUTION_MODE must be 'paper' or 'live'")
+        if self.automated_trading_min_confidence < 0 or self.automated_trading_min_confidence > 1:
+            raise ValueError("AUTOMATED_TRADING_MIN_CONFIDENCE must be between 0 and 1")
+        if self.automated_trading_max_orders_per_run < 1:
+            raise ValueError("AUTOMATED_TRADING_MAX_ORDERS_PER_RUN must be at least 1")
+        if self.automated_trading_order_notional_usd <= 0:
+            raise ValueError("AUTOMATED_TRADING_ORDER_NOTIONAL_USD must be greater than zero")
         if self.is_production:
             if not self.api_key:
                 raise ValueError("API_KEY is required when ENVIRONMENT=production")
@@ -117,6 +139,8 @@ class Settings(BaseSettings):
                 raise ValueError("ALLOWED_HOSTS cannot contain '*' when ENVIRONMENT=production")
             if "*" in self.cors_origins:
                 raise ValueError("CORS_ORIGINS cannot contain '*' when ENVIRONMENT=production")
+            if self.automated_trading_enabled and self.automated_trading_execution_mode == "live" and not self.automated_trading_live_enabled:
+                raise ValueError("AUTOMATED_TRADING_LIVE_ENABLED must be true when automated live execution is configured")
         return self
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
