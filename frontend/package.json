@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
-    "preview": "vite preview --host 0.0.0.0"
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "vitest run"
   },
   "dependencies": {
     "@sentry/react": "latest",
@@ -23,10 +24,15 @@
     "zustand": "latest"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "autoprefixer": "latest",
+    "jsdom": "^29.1.1",
     "postcss": "latest",
-    "tailwindcss": "3.4.17"
+    "tailwindcss": "3.4.17",
+    "vitest": "^4.1.9"
   }
 }
