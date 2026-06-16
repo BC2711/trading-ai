@@ -20,17 +20,24 @@ The repository includes a production Docker Compose stack with:
 - `postgres`: PostgreSQL database
 - `redis`: Celery broker/cache backend
 - `celery_worker`: asynchronous task worker
-- `celery_beat`: scheduled task runner
+- `scheduler`: APScheduler process that queues recurring Celery work
 - `nginx`: public reverse proxy for frontend, API, metrics, and websockets
 
 Do not commit real secrets. Use placeholders in committed files and provide real values only in your deployment environment.
 
 ### Environment Variables
 
-Create a production `.env` file from the template:
+Create environment files from the templates:
 
 ```bash
-cp .env.example .env
+cp .env.development.example .env.development
+cp .env.production.example .env.production
+```
+
+For local Docker development, you may also copy the development file to `.env` because Docker Compose automatically reads `.env` for variable interpolation:
+
+```bash
+cp .env.development.example .env
 ```
 
 Set these values before starting production:
@@ -39,7 +46,7 @@ Set these values before starting production:
 ENVIRONMENT=production
 DOCS_ENABLED=false
 NGINX_HTTP_PORT=80
-ALLOWED_HOSTS=["your-domain.example","www.your-domain.example"]
+ALLOWED_HOSTS=["your-domain.example","www.your-domain.example","localhost","127.0.0.1","backend","nginx"]
 CORS_ORIGINS=["https://your-domain.example"]
 API_KEY=replace-with-long-random-api-key
 JWT_SECRET=replace-with-long-random-jwt-secret
@@ -96,6 +103,32 @@ The public reverse proxy is configured in [nginx/nginx.conf](nginx/nginx.conf). 
 - `/metrics` to backend metrics
 - `/health` to an Nginx health response
 
+### Deployment Scripts
+
+The repository includes shell scripts for common deployment tasks:
+
+```bash
+# Build, migrate, and start the production stack.
+ENV_FILE=.env.production ./scripts/start.sh
+
+# Apply Alembic migrations only.
+ENV_FILE=.env.production ./scripts/migrate.sh
+
+# Start worker processes and follow their logs.
+ENV_FILE=.env.production ./scripts/workers.sh
+
+# Run backend and frontend tests locally.
+./scripts/test.sh
+```
+
+The backend image also includes container entrypoint scripts under `backend/scripts/`:
+
+- `start.sh`: starts Uvicorn and can optionally run migrations when `RUN_MIGRATIONS_ON_STARTUP=true`.
+- `migrate.sh`: runs `alembic upgrade head`.
+- `worker.sh`: starts the Celery worker.
+- `scheduler.sh`: starts the APScheduler queueing process.
+- `test.sh`: runs backend pytest when test dependencies are installed.
+
 ### Database Migrations
 
 **Important:** In production environments, `Base.metadata.create_all` and startup schema repair are disabled. All schema changes must be applied via Alembic migrations to ensure auditability and data safety. The backend expects the database to already be migrated before it starts serving traffic.
@@ -103,16 +136,16 @@ The public reverse proxy is configured in [nginx/nginx.conf](nginx/nginx.conf). 
 Run PostgreSQL, apply migrations, then start the application stack:
 
 ```bash
-docker compose --env-file .env up -d postgres
-docker compose --env-file .env run --rm backend alembic upgrade head
-docker compose --env-file .env up -d --build
+docker compose --env-file .env.production up -d postgres redis
+docker compose --env-file .env.production run --rm backend /app/scripts/migrate.sh
+docker compose --env-file .env.production up -d --build
 ```
 
 To inspect migration state:
 
 ```bash
-docker compose --env-file .env run --rm backend alembic current
-docker compose --env-file .env run --rm backend alembic history
+docker compose --env-file .env.production run --rm backend alembic current
+docker compose --env-file .env.production run --rm backend alembic history
 ```
 
 ### Celery Commands
@@ -120,19 +153,19 @@ docker compose --env-file .env run --rm backend alembic history
 Production Compose starts these automatically:
 
 ```bash
-docker compose up -d celery_worker celery_beat
+docker compose --env-file .env.production up -d celery_worker scheduler
 ```
 
 Manual worker command:
 
 ```bash
-docker compose run --rm backend celery -A app.core.celery_app.celery_app worker --loglevel=info
+docker compose --env-file .env.production run --rm backend /app/scripts/worker.sh
 ```
 
-Manual beat command:
+Manual scheduler command:
 
 ```bash
-docker compose run --rm backend celery -A app.core.celery_app.celery_app beat --loglevel=info
+docker compose --env-file .env.production run --rm backend /app/scripts/scheduler.sh
 ```
 
 ### Production Run Commands
@@ -140,13 +173,13 @@ docker compose run --rm backend celery -A app.core.celery_app.celery_app beat --
 Build and start the full production stack:
 
 ```bash
-docker compose --env-file .env up -d --build
+ENV_FILE=.env.production ./scripts/start.sh
 ```
 
 Run migrations before starting or upgrading backend containers:
 
 ```bash
-docker compose --env-file .env run --rm backend alembic upgrade head
+ENV_FILE=.env.production ./scripts/migrate.sh
 ```
 
 View logs:
@@ -154,6 +187,7 @@ View logs:
 ```bash
 docker compose logs -f backend
 docker compose logs -f celery_worker
+docker compose logs -f scheduler
 docker compose logs -f nginx
 ```
 
@@ -217,10 +251,10 @@ Run Celery locally after Redis is available:
 ```bash
 cd backend
 celery -A app.core.celery_app.celery_app worker --loglevel=info
-celery -A app.core.celery_app.celery_app beat --loglevel=info
+python -m app.workers.scheduler
 ```
 
-For local Docker experimentation, copy `.env.example` to `.env`, replace placeholders, and run the same Compose commands. For pure local frontend development, `frontend/.env.example` defaults to `http://localhost:8000`.
+For local Docker experimentation, copy `.env.development.example` to `.env`, replace placeholders if needed, and run the same Compose commands. For pure local frontend development, `frontend/.env.example` defaults to `http://localhost:8000`.
 
 ## Local Backend
 
@@ -284,7 +318,7 @@ The sentiment service uses provider adapters for News API, CryptoPanic, Reddit, 
 Configure provider credentials through environment variables and run migrations before production startup:
 
 ```bash
-docker compose --env-file .env run --rm backend alembic upgrade head
+ENV_FILE=.env.production ./scripts/migrate.sh
 ```
 
 If provider keys are missing or providers fail, the backend returns fallback sentiment items so local development and dashboards continue to work.

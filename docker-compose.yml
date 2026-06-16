@@ -1,6 +1,7 @@
 services:
   postgres:
     image: postgres:17-alpine
+    container_name: trading-ai-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
@@ -21,6 +22,7 @@ services:
 
   redis:
     image: redis:7.4-alpine
+    container_name: trading-ai-redis
     restart: unless-stopped
     command: redis-server --appendonly yes
     volumes:
@@ -34,11 +36,15 @@ services:
   backend:
     build:
       context: ./backend
+    container_name: trading-ai-backend
     restart: unless-stopped
+    command: ["/app/scripts/start.sh"]
     env_file:
-      - .env
+      - ${APP_ENV_FILE:-.env.production}
     environment:
       ENVIRONMENT: production
+      DEVELOPMENT_AUTO_CREATE_SCHEMA: "false"
+      DEVELOPMENT_SCHEMA_REPAIR_ENABLED: "false"
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
@@ -63,12 +69,15 @@ services:
   celery_worker:
     build:
       context: ./backend
+    container_name: trading-ai-celery-worker
     restart: unless-stopped
-    command: celery -A app.core.celery_app.celery_app worker --loglevel=info
+    command: ["/app/scripts/worker.sh"]
     env_file:
-      - .env
+      - ${APP_ENV_FILE:-.env.production}
     environment:
       ENVIRONMENT: production
+      DEVELOPMENT_AUTO_CREATE_SCHEMA: "false"
+      DEVELOPMENT_SCHEMA_REPAIR_ENABLED: "false"
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
@@ -79,15 +88,18 @@ services:
       redis:
         condition: service_healthy
 
-  celery_beat:
+  scheduler:
     build:
       context: ./backend
+    container_name: trading-ai-scheduler
     restart: unless-stopped
-    command: celery -A app.core.celery_app.celery_app beat --loglevel=info
+    command: ["/app/scripts/scheduler.sh"]
     env_file:
-      - .env
+      - ${APP_ENV_FILE:-.env.production}
     environment:
       ENVIRONMENT: production
+      DEVELOPMENT_AUTO_CREATE_SCHEMA: "false"
+      DEVELOPMENT_SCHEMA_REPAIR_ENABLED: "false"
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
@@ -105,6 +117,7 @@ services:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL}
         VITE_API_KEY: ${VITE_API_KEY}
         VITE_SENTRY_DSN: ${VITE_SENTRY_DSN}
+    container_name: trading-ai-frontend
     restart: unless-stopped
     depends_on:
       backend:
@@ -118,9 +131,10 @@ services:
 
   nginx:
     image: nginx:1.27-alpine
+    container_name: trading-ai-nginx
     restart: unless-stopped
     ports:
-      - "${NGINX_HTTP_PORT}:80"
+      - "${NGINX_HTTP_PORT:-80}:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
