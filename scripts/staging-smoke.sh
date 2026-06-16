@@ -2,9 +2,17 @@
 set -eu
 
 BASE_URL="${BASE_URL:-http://localhost}"
+ENV_FILE="${ENV_FILE:-}"
 SMOKE_EMAIL="${SMOKE_EMAIL:-smoke-admin@example.com}"
 SMOKE_PASSWORD="${SMOKE_PASSWORD:-strong-smoke-password}"
 API_KEY="${API_KEY:-}"
+
+if [ -n "$ENV_FILE" ] && [ -f "$ENV_FILE" ]; then
+  set -a
+  . "$ENV_FILE"
+  set +a
+  API_KEY="${API_KEY:-}"
+fi
 
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT

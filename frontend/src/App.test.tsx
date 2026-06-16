@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -89,7 +89,9 @@ describe("App route protection", () => {
 
     renderApp();
     expect(await screen.findByRole("heading", { name: /users route/i })).toBeInTheDocument();
-    expireCallback?.();
+    act(() => {
+      expireCallback?.();
+    });
 
     await waitFor(() => expect(screen.getByRole("heading", { name: /mock login/i })).toBeInTheDocument());
   });

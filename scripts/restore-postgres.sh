@@ -2,6 +2,13 @@
 set -eu
 
 ENV_FILE="${ENV_FILE:-.env.production}"
+
+if [ -f "$ENV_FILE" ]; then
+  set -a
+  . "$ENV_FILE"
+  set +a
+fi
+
 POSTGRES_USER="${POSTGRES_USER:-trading}"
 POSTGRES_DB="${POSTGRES_DB:-trading}"
 
@@ -20,6 +27,6 @@ if [ "${CONFIRM_RESTORE:-}" != "yes" ]; then
   exit 2
 fi
 
-cat "$BACKUP_FILE" | docker compose --env-file "$ENV_FILE" exec -T postgres pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner
+cat "$BACKUP_FILE" | APP_ENV_FILE="$ENV_FILE" docker compose --env-file "$ENV_FILE" exec -T postgres pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner
 
 printf '%s\n' "Postgres restore completed from $BACKUP_FILE"

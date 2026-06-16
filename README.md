@@ -9,6 +9,7 @@ backend/     FastAPI, SQLAlchemy, Alembic, Celery, APScheduler, ML/TA stack
 frontend/    Vite, React, TypeScript, Tailwind, Query, Zustand, Recharts
 nginx/       Reverse proxy config
 monitoring/  Prometheus and Grafana provisioning
+.github/     CI workflow for tests, builds, migrations, and Docker validation
 ```
 
 ## Production Deployment
@@ -46,6 +47,9 @@ Set these values before starting production:
 ENVIRONMENT=production
 DOCS_ENABLED=false
 NGINX_HTTP_PORT=80
+NGINX_HTTPS_PORT=443
+TLS_CERT_PATH=./certs/fullchain.pem
+TLS_KEY_PATH=./certs/privkey.pem
 ALLOWED_HOSTS=["your-domain.example","www.your-domain.example","localhost","127.0.0.1","backend","nginx"]
 CORS_ORIGINS=["https://your-domain.example"]
 API_KEY=replace-with-long-random-api-key
@@ -74,6 +78,8 @@ Important backend variables:
 - `NEWS_API_KEY`, `CRYPTOPANIC_API_KEY`, `REDDIT_BEARER_TOKEN`, `X_BEARER_TOKEN`: optional provider credentials. Missing keys skip that provider and the backend falls back to deterministic local sentiment if no provider returns data.
 - `NOTIFICATION_EMAIL_*`, `TELEGRAM_*`, `WHATSAPP_*`, `DISCORD_WEBHOOK_URL`: optional notification provider credentials and endpoints. Missing keys mark enabled channels as not configured and are never returned to the frontend.
 - `SENTRY_DSN` and `VITE_SENTRY_DSN`: optional monitoring DSNs.
+- `TLS_CERT_PATH` and `TLS_KEY_PATH`: host paths mounted into the TLS Nginx override when HTTPS is enabled.
+- `BACKUP_DIR`: host backup directory used by backup scripts.
 
 Important frontend variables:
 
@@ -103,6 +109,16 @@ The public reverse proxy is configured in [nginx/nginx.conf](nginx/nginx.conf). 
 - `/metrics` to backend metrics
 - `/health` to an Nginx health response
 
+For HTTPS, provide certificate files and use the TLS Compose override:
+
+```bash
+TLS_CERT_PATH=/etc/letsencrypt/live/your-domain.example/fullchain.pem \
+TLS_KEY_PATH=/etc/letsencrypt/live/your-domain.example/privkey.pem \
+docker compose -f docker-compose.yml -f docker-compose.tls.yml --env-file .env.production up -d nginx
+```
+
+The TLS config in [nginx/nginx.tls.conf](nginx/nginx.tls.conf) redirects HTTP traffic to HTTPS, enables TLS 1.2/1.3, preserves websocket upgrades, and sends HSTS.
+
 ### Deployment Scripts
 
 The repository includes shell scripts for common deployment tasks:
@@ -117,6 +133,12 @@ ENV_FILE=.env.production ./scripts/migrate.sh
 # Start worker processes and follow their logs.
 ENV_FILE=.env.production ./scripts/workers.sh
 
+# Validate Compose, build images, run migrations, start services, and run smoke checks.
+ENV_FILE=.env.production ./scripts/docker-validate.sh
+
+# Run a smoke check against an already running environment.
+BASE_URL=https://your-domain.example API_KEY=your-api-key ./scripts/staging-smoke.sh
+
 # Run backend and frontend tests locally.
 ./scripts/test.sh
 ```
@@ -128,6 +150,8 @@ The backend image also includes container entrypoint scripts under `backend/scri
 - `worker.sh`: starts the Celery worker.
 - `scheduler.sh`: starts the APScheduler queueing process.
 - `test.sh`: runs backend pytest when test dependencies are installed.
+
+If your checkout loses Unix executable bits, run scripts with `sh scripts/<name>.sh` or restore them with `git update-index --chmod=+x scripts/*.sh backend/scripts/*.sh`.
 
 ### Database Migrations
 
@@ -210,6 +234,90 @@ Production URLs:
 - Health: `http://localhost/health`
 
 API docs are disabled when `ENVIRONMENT=production`.
+
+### Staging Validation
+
+Use a staging host that mirrors production before enabling live credentials:
+
+```bash
+cp .env.production.example .env.production
+# Replace every placeholder and set ALLOWED_HOSTS/CORS_ORIGINS for the staging domain.
+ENV_FILE=.env.production ./scripts/docker-validate.sh
+```
+
+The validation script checks the Compose config, builds application images, starts Postgres/Redis, applies Alembic migrations, starts backend/worker/scheduler/frontend/nginx, and runs smoke checks for health, auth, `/api/me`, and paper risk validation.
+
+When validating HTTPS:
+
+```bash
+TLS_ENABLED=true BASE_URL=https://staging.example.com ENV_FILE=.env.production ./scripts/docker-validate.sh
+```
+
+### Secrets Management
+
+Committed env files are examples only. For production, source values from a secret manager such as AWS Secrets Manager, SSM Parameter Store, Vault, Doppler, 1Password Secrets Automation, or your platform's native secret store.
+
+Minimum production secret rules:
+
+- Rotate `API_KEY`, `JWT_SECRET`, `JWT_REFRESH_SECRET`, and `CREDENTIAL_ENCRYPTION_SECRET` before launch.
+- Keep broker API credentials restricted to the minimum permissions required.
+- Store live broker credentials only after paper/testnet validation and after risk controls have been reviewed.
+- Never bake real secrets into Docker images, git, frontend build args beyond the intentionally public `VITE_*` values, or CI logs.
+
+### Backups And Restore
+
+Create database and Redis backups from a running Compose stack:
+
+```bash
+ENV_FILE=.env.production BACKUP_DIR=backups/postgres ./scripts/backup-postgres.sh
+ENV_FILE=.env.production BACKUP_DIR=backups/redis ./scripts/backup-redis.sh
+```
+
+Restore requires an explicit confirmation flag:
+
+```bash
+CONFIRM_RESTORE=yes BACKUP_FILE=backups/postgres/trading_20260616T000000Z.dump ./scripts/restore-postgres.sh
+CONFIRM_RESTORE=yes BACKUP_FILE=backups/redis/dump_20260616T000000Z.rdb ./scripts/restore-redis.sh
+```
+
+Practice restores in staging and document the expected recovery time before relying on backups in production.
+
+### Runtime Cleanup
+
+Local test/build artifacts are gitignored. To remove generated runtime artifacts from a checkout:
+
+```bash
+./scripts/cleanup-runtime.sh
+```
+
+The cleanup script only removes known generated paths inside the repository.
+
+### CI
+
+The GitHub Actions workflow in [.github/workflows/ci.yml](.github/workflows/ci.yml) runs:
+
+- backend dependency install, pytest, and Alembic head check
+- frontend dependency install, unit tests, and production build
+- Docker Compose config validation, TLS override validation, and backend/frontend image builds
+
+### End-To-End Smoke Tests
+
+Frontend Playwright smoke tests live in [frontend/e2e](frontend/e2e). They are intended for staging or a local Docker stack:
+
+```bash
+cd frontend
+npm run test:e2e
+```
+
+Use environment variables for deployed targets:
+
+```bash
+E2E_BASE_URL=https://staging.example.com \
+E2E_API_KEY=your-api-key \
+E2E_SMOKE_EMAIL=smoke-admin@example.com \
+E2E_SMOKE_PASSWORD=strong-smoke-password \
+npm run test:e2e
+```
 
 ### Local Development Commands
 

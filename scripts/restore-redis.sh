@@ -2,6 +2,13 @@
 set -eu
 
 ENV_FILE="${ENV_FILE:-.env.production}"
+
+if [ -f "$ENV_FILE" ]; then
+  set -a
+  . "$ENV_FILE"
+  set +a
+fi
+
 REDIS_CONTAINER="${REDIS_CONTAINER:-trading-ai-redis}"
 
 if [ -z "${BACKUP_FILE:-}" ]; then
@@ -19,8 +26,8 @@ if [ "${CONFIRM_RESTORE:-}" != "yes" ]; then
   exit 2
 fi
 
-docker compose --env-file "$ENV_FILE" stop redis
+APP_ENV_FILE="$ENV_FILE" docker compose --env-file "$ENV_FILE" stop redis
 docker cp "$BACKUP_FILE" "$REDIS_CONTAINER:/data/dump.rdb"
-docker compose --env-file "$ENV_FILE" start redis
+APP_ENV_FILE="$ENV_FILE" docker compose --env-file "$ENV_FILE" start redis
 
 printf '%s\n' "Redis restore completed from $BACKUP_FILE"
